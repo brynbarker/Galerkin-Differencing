@@ -119,3 +119,18 @@ class Laplace:
         self.ffunc = f
 
         self.mesh = Mesh(N)
+        self.h = self.mesh.h
+
+    def _build_stiffness(self):
+        k_coarse = local_stiffness(2*self.h)
+        k_fine = local_stiffness(self.h)
+
+        k_interface_0 = local_stiffness(self.h,interface=True,top=0)
+        k_interface_1 = local_stiffness(self.h,interface=True,top=1)
+
+        local_ks = [[k_coarse,k_fine],[k_interface_0,k_interface_1]]
+
+        for e in self.mesh.elements:
+            fine = e.h == self.h
+            for dof in e.dof_list:
+                
