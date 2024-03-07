@@ -1,8 +1,40 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlip.animation import FuncAnimation
 
 #visualization helpers
 #animators
+
+def animate_2d(frame,data,size):
+    fig,ax = plt.subplots(figsize=(10,10))
+
+    line, = ax.plot(frame[0],frame[1],'lightgrey')
+    blocks, dots = [], []
+    for i in range(size):
+        block, = ax.plot([],[])
+        dot, = ax.plot([],[],c='k',marker='o')
+        block.append(block)
+        dots.append(dot)
+
+    def update(n):
+        blocks_n, dots_n = data[n]
+        line.set_data(frame[0],frame[1],'lightgrey')
+        for i in range(size):
+            if i < len(blocks_n):
+                blocks[i].set_data(blocks_n[i][0],blocks_n[i][1])
+                dots[i].set_data(dots_n[i][0],dots_n[i][1])
+            else:
+                blocks[i].set_data([],[])
+                dots[i].set_data([],[])
+        return [line]+blocks+dots
+
+    ani = FuncAnimation(fig, update, frames=len(data), interval=20)
+    return ani
+
+        
+
+    
+
 #integrators
 
 def gauss(f,a,b,c,d,n):
