@@ -133,4 +133,4 @@ class Laplace:
         for e in self.mesh.elements:
             fine = e.h == self.h
             for dof in e.dof_list:
-                
+               pass 

@@ -1,9 +1,57 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlip.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation
 
 #visualization helpers
+
+def vis_3d_vals(l_func,l_a,l_b):
+    vis_data = []
+    for (f,a,b) in zip(l_func,l_a,l_b):
+        xdom = np.linspace(a[0],b[0])
+        ydom = np.linspace(a[1],b[1])
+        X,Y = np.meshgrid(xdom,ydom)
+        F = np.array([f(x,y) for (x,y) in \
+                      zip(X.flatten(),Y.flatten())]).reshape(X.shape)
+        vis_data.append([X,Y,F])
+    return vis_data
+
+
+def vis_3d_multiple(figs):
+    num = len(figs)
+    fig,axs = plt.subplots(1,num,
+                          figsize=(15,5),
+                          subplot_kw={"projection":"3d"})
+    for ax,(f,a,b) in zip(axs,figs):
+        data = vis_3d_vals(f,a,b)
+        count = len(data)
+        for (X,Y,F) in data:
+            if count == 1:
+                surf = ax.plot_surface(X,Y,F,cmap="PiYG")
+            else:
+                surf = ax.plot_surface(X,Y,F,alpha=.5)
+
+    plt.show()
+
+
+
+
+def vis_3d(l_func,l_a,l_b):
+    count = len(l_func)
+    fig,ax = plt.subplots(subplot_kw={"projection":"3d"})
+    data = vis_3d_vals(l_func,l_a,l_b)
+    for (X,Y,F) in data:
+        if count == 1:
+            surf = ax.plot_surface(X,Y,F,cmap="PiYG")
+        else:
+            surf = ax.plot_surface(X,Y,F,alpha=.5)
+    plt.show()
+
+
+
+
 #animators
+
+
 
 def animate_2d(frame,data,size):
     fig,ax = plt.subplots(figsize=(10,10))

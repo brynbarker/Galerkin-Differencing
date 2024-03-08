@@ -15,8 +15,27 @@ def phi3(x,h):
 
 def phi3_interface(y,h,s,coll=True):
     if y > 2*h or y <= -2*h: return 0
+    fine = phi3(y,h)
+    
+    if coll:
+        coarse = phi3(y/2,h)
+    else:
+        if -2*h < y <= -h:
+            coarse = phi3((y-h)/2,h)
+        elif -h < y <= 0:
+            coarse = phi3((y-3*h)/2,h)
+        elif 0 < y <= h:
+            coarse = phi3((y+3*h)/2,h)
+        else:
+            coarse = phi3((y+h)/2,h)
+    return s*fine + (1-s)*coarse
+
+
+
     end_val = 1-11/3*s+4*s**2-4/3*s**3
     if coll:
+        if -h < y <= h:
+            return phi3(s*y,h)
         scale = abs(y)/2/h
         return phi3(s*y,h)-scale*end_val
     if -2*h < y <= -h:
@@ -114,7 +133,7 @@ def grad_phi3_eval(x_in,y_in,h,x0,y0):
     interface = 0 < dist <= h
     return grad_phi3(x,y,h,s,interface,coll)
 
-def phi3_2d_eval(x_in,y_in,x0,y0,h):
+def phi3_2d_eval(x_in,y_in,h,x0,y0):
     x,y = x_in-x0,y_in-y0
     dist = x_in-0.5
     s = (dist/h+1)/2
