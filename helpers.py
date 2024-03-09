@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from IPython.display import HTML
 
 #visualization helpers
 
@@ -16,11 +17,14 @@ def vis_3d_vals(l_func,l_a,l_b):
     return vis_data
 
 
-def vis_3d_multiple(figs):
+def vis_3d_multiple(figs,rotate=False,extras=None):
     num = len(figs)
-    fig,axs = plt.subplots(1,num,
-                          figsize=(15,5),
-                          subplot_kw={"projection":"3d"})
+    if not rotate:
+        fig,axs = plt.subplots(1,num,
+                              figsize=(15,5),
+                              subplot_kw={"projection":"3d"})
+    else:
+        fig,axs = extras
     for ax,(f,a,b) in zip(axs,figs):
         data = vis_3d_vals(f,a,b)
         count = len(data)
@@ -29,55 +33,89 @@ def vis_3d_multiple(figs):
                 surf = ax.plot_surface(X,Y,F,cmap="PiYG")
             else:
                 surf = ax.plot_surface(X,Y,F,alpha=.5)
+    if not rotate:
+        plt.show()
+    else:
+        return fig,
 
-    plt.show()
 
 
 
-
-def vis_3d(l_func,l_a,l_b):
+def vis_3d(l_func,l_a,l_b,rotate=False,extras=None):
     count = len(l_func)
-    fig,ax = plt.subplots(subplot_kw={"projection":"3d"})
+    if not rotate:
+        fig,ax = plt.subplots(subplot_kw={"projection":"3d"})
+    else:
+        fig,ax = extras
     data = vis_3d_vals(l_func,l_a,l_b)
     for (X,Y,F) in data:
         if count == 1:
             surf = ax.plot_surface(X,Y,F,cmap="PiYG")
         else:
             surf = ax.plot_surface(X,Y,F,alpha=.5)
-    plt.show()
+    if not rotate:
+        plt.show()
+    else:
+        return fig,
 
 
 
 
 #animators
 
+def vis_3d_rotate(figs):
+    num = len(figs)
+    fig,axs = plt.subplots(1,num,
+                          figsize=(2*num,3),
+                          subplot_kw={"projection":"3d"})
+    if num == 1:
+        l_func,l_a,l_b = figs[0]
+        init = lambda _=None: vis_3d(l_func,l_a,l_b,True,[fig,axs])
+    else:
+        init = lambda _=None: vis_3d_multiple(figs,True,[fig,axs])
 
+    def animate(i):
+        axs.view_init(elev=10., azim=i)
+        return fig,
 
-def animate_2d(frame,data,size):
-    fig,ax = plt.subplots(figsize=(10,10))
+    ani = FuncAnimation(fig,animate,init_func=init,frames=360,interval=20)
+    plt.close()
+    return HTML(ani.to_html5_video())
 
+def animate_2d(frames,data,size,figsize=(10,10),yesdot=True):
+    fig,ax = plt.subplots(figsize=figsize)
+    frame = frames[0]
+    ax.set_xlim(frame[0][0],frame[0][-1])
+    ax.set_ylim(min(data[0][0][1])-.1,max(data[0][0][1])+.1)
+    
     line, = ax.plot(frame[0],frame[1],'lightgrey')
     blocks, dots = [], []
     for i in range(size):
         block, = ax.plot([],[])
-        dot, = ax.plot([],[],c='k',marker='o')
-        block.append(block)
-        dots.append(dot)
+        if yesdot: dot, = ax.plot([],[],c='k',marker='o')
+        blocks.append(block)
+        if yesdot: dots.append(dot)
 
     def update(n):
-        blocks_n, dots_n = data[n]
-        line.set_data(frame[0],frame[1],'lightgrey')
+        if yesdot: blocks_n, dots_n = data[n]
+        else: blocks_n = data[n]
+        if len(frames) > 1: frame = frames[n]
+        else: frame = frames[0]
+        line.set_data(frame[0],frame[1])
         for i in range(size):
             if i < len(blocks_n):
                 blocks[i].set_data(blocks_n[i][0],blocks_n[i][1])
-                dots[i].set_data(dots_n[i][0],dots_n[i][1])
+                if yesdot: dots[i].set_data(dots_n[i][0],dots_n[i][1])
             else:
                 blocks[i].set_data([],[])
-                dots[i].set_data([],[])
-        return [line]+blocks+dots
+                if yesdot: dots[i].set_data([],[])
+        to_return = [line]+blocks
+        if yesdot: to_return += dots
+        return to_return
 
-    ani = FuncAnimation(fig, update, frames=len(data), interval=20)
-    return ani
+    ani = FuncAnimation(fig, update, frames=len(data), interval=100)
+    plt.close()
+    return HTML(ani.to_html5_video())
 
         
 
