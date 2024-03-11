@@ -75,7 +75,7 @@ def vis_3d_rotate(figs):
         init = lambda _=None: vis_3d_multiple(figs,True,[fig,axs])
 
     def animate(i):
-        axs.view_init(elev=10., azim=i)
+        axs.view_init(elev=20., azim=i)
         return fig,
 
     ani = FuncAnimation(fig,animate,init_func=init,frames=360,interval=20)
