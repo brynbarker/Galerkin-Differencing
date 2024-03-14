@@ -123,3 +123,10 @@ def phi3_2d_ref(x_ref,y_ref,h,ind,interface=False,top=False):
     coll = (j+top)%2
     s = x_ref/h
     return phi3_2d(x,y,h,s,interface,coll)
+
+def grad_phi3_ref(x_ref,y_ref,h,ind,interface=False,top=False):
+    i,j = ind
+    x,y = x_ref+h*(1-j),y_ref+h*(1-i)
+    coll = (j+top)%2
+    s = x_ref/h
+    return grad_phi3(x,y,h,s,interface,coll)

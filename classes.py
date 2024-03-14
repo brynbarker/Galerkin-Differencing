@@ -11,7 +11,7 @@ class Node:
         self.h
 
 class Element:
-    def __init__(self,ID,j,i,x,y,h):
+    def _init__(self,ID,j,i,x,y,h):
         self.ID = ID
         self.j = j
         self.i = i
@@ -20,7 +20,9 @@ class Element:
         self.h = h
         self.dof_ids = []
         self.dof_list = []
-        self.stiffness = None
+        self.interface = False
+        self.fine = False
+        self.top = True
 
     def add_dofs(self,strt,xlen):
         if len(self.dof_ids) != 0:
@@ -37,6 +39,15 @@ class Element:
             dof = dofs[dof_id]
             self.dof_list.append(dof)
         return
+
+    def set_interface(self):
+        self.interface = True
+
+    def set_fine(self):
+        self.fine = True
+
+    def set_not_top(self):
+        self.top = False
 
 class Mesh:
     def __init(self,N):
@@ -97,6 +108,7 @@ class Mesh:
                     strt = dof_id-1-xlen
                     element = Element(e_id,j-1,i-1,x,y,H)
                     element.add_dofs(strt,xlen)
+                    element.set_fine()
                     self.elements[e_id] = element
                     e_id += 1
 
@@ -105,6 +117,9 @@ class Mesh:
                         self.boundaries.append(dof_id)
                 elif x==0.5 and 0<y<1:
                     self.interface[1].append(dof_id)
+                    self.elements[e_id-1].set_interface()
+                    if int(y/2/h)%1 == 0:
+                        self.elements[e_id-1].set_not_top()
 
                 dof_id += 1
 
@@ -112,25 +127,79 @@ class Mesh:
         for e in self.elements:
             e.update_dofs(self.dofs)
 
-class Laplace:
-    def __init(self,N,u,f):
+class Solver:
+    def __init__(self,N,u,f=None,qpn=5):
         self.N = N
         self.ufunc = u
-        self.ffunc = f
+        self.ffunc = f #needs to be overwritten 
+        self.qpn = qpn
 
         self.mesh = Mesh(N)
         self.h = self.mesh.h
 
+        self.solved = False
+
+    def _build_force(self):
+        num_dofs = len(self.mesh.dofs)
+        self.F = np.zeros(num_dofs)
+
+        for e in self.mesh.elements:
+
+            for test_id,dof in enumerate(e.dof_list):
+
+                test_ind = id_to_ind[test_id]
+                phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind,e.interface,e.top)
+                func = lambda x,y: phi_test(x,y) * self.ffunc(x,y)
+                val = gauss(func,0,h,0,h,self.qpn)
+
+                self.F[dof.ID] += val
+
     def _build_stiffness(self):
-        k_coarse = local_stiffness(2*self.h)
+        num_dofs = len(self.mesh.dofs)
+        self.K = np.zeros((num_dofs,num_dofs))
+
+        id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+        
+        k_coarse = local_stiffness(2*self.h,qpn=self.qpn)
         k_fine = local_stiffness(self.h)
 
-        k_interface_0 = local_stiffness(self.h,interface=True,top=0)
-        k_interface_1 = local_stiffness(self.h,interface=True,top=1)
+        k_interface_0 = local_stiffness(self.h,interface=True,top=0,qpn=self.qpn)
+        k_interface_1 = local_stiffness(self.h,interface=True,top=1,qpn=self.qpn)
 
         local_ks = [[k_coarse,k_fine],[k_interface_0,k_interface_1]]
 
         for e in self.mesh.elements:
-            fine = e.h == self.h
-            for dof in e.dof_list:
-               pass 
+            local_k = local_ks[e.interface][e.fine*e.top]
+            for test_id,dof in enumerate(e.dof_list):
+                self.K[dof.ID,e.dof_ids] += local_k[test_id]
+
+
+    def _build_mass(self):
+        num_dofs = len(self.mesh.dofs)
+        self.M = np.zeros((num_dofs,num_dofs))
+
+        id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+        
+        m_coarse = local_mass(2*self.h,qpn=self.qpn)
+        m_fine = local_mass(self.h)
+
+        m_interface_0 = local_mass(self.h,interface=True,top=0,qpn=self.qpn)
+        m_interface_1 = local_mass(self.h,interface=True,top=1,qpn=self.qpn)
+
+        local_ms = [[m_coarse,m_fine],[m_interface_0,m_interface_1]]
+
+        for e in self.mesh.elements:
+            local_m = local_ms[e.interface][e.fine*e.top]
+            for test_id,dof in enumerate(e.dof_list):
+                self.M[dof.ID,e.dof_ids] += local_m[test_id]
+
+class Laplace(Solver):
+    def __init__(self,N,u,f,qpn=5):
+        super().__init__(N,u,f,qpn)
+
+    def solve():
+
+
+class Projection(Solver):
+    def __init__(self,N,u,qpn=5):
+        super().__init__(N,u,u,qpn)

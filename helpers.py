@@ -156,3 +156,24 @@ def local_stiffness(h,interface=False,top=False,qpn=5):
             K[trial_ind,test_ind] += val * (test_ind != trial_ind)
     return K
 
+def local_mass(h,interface=False,top=False,qpn=5):
+    M = np.zeros((16,16))
+    id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+
+    for test_id in range(16):
+
+        test_ind = id_to_ind[test_id]
+        phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind,interface,top)
+
+        for trial_id in range(i,16):
+
+            trial_ind = id_to_ind[trial_id]
+            phi_trial = lambda x,y: phi3_2d_ref(x,y,h,trial_ind,interface,top)
+
+            func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
+            val = gauss(func,0,h,0,h,qpn)
+
+            M[test_ind,trial_ind] += val
+            M[trial_ind,test_ind] += val * (test_ind != trial_ind)
+    return M
+
