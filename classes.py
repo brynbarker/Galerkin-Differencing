@@ -86,7 +86,7 @@ class Mesh:
                 if x==0. or y==0. or y==1:
                     if (0<=x<=.5) and (0<=y<=1.):
                         self.boundaries.append(dof_id)
-                elif x==0.5 and 0<y<1:
+                elif x==0.5:
                     self.interface[0].append(dof_id)
 
                 dof_id += 1
@@ -193,11 +193,48 @@ class Solver:
             for test_id,dof in enumerate(e.dof_list):
                 self.M[dof.ID,e.dof_ids] += local_m[test_id]
 
+    def _setup_constraints(self):
+        num_dofs = len(self.dofs)
+        self.Id = np.zeros((num_dofs,num_dofs))
+        self.C = np.eye(num_dofs)
+	self.dirichlet = np.zeros((num_dofs))
+
+        A0,A1,A2,A3 = [phi3(j*self.h/4,self.h) for j in [1,3,5,7]]
+        a0,a1 = [phi4(j*self.h/2,self.h) for j in [1,3]]
+	V = 1/(a0**2-a1**2)*np.array([[a0,a1],[a1,a0]]) *\
+	    np.array([[A3,A1-a1,A0-a0,A2,0],[0,a2,A0-a0,A1-a1,A3]])
+	
+	c_inter,f_inter = self.mesh.interface
+	for dof_id in f_inter:
+		self.Id[dof_id,dof_id] = 1
+		self.C[dof_id] *= 0
+	self.C[f_inter[1:-1:2],c_inter[2:-2]] = 1
+	for ind in range(5):
+		self.C[f_inter[::4],c_inter[ind::2]] = V[0][ind]
+		self.C[f_inter[2::4],c_inter[ind::2]] = V[1][ind]
+
+	for dof_id in self.mesh.boundaries:
+		self.Id[dof_id] = 1
+		self.C[dof_id] *= 0
+		x,y = self.dofs[dof_id].x,self.dofs[dof_id].y
+		self.dirichlet[dof_id] = self.ufunc(x,y)
+
+    def sol(self, weights=None):
+        if weights is None:
+            assert self.solved
+            weights = 
+
 class Laplace(Solver):
     def __init__(self,N,u,f,qpn=5):
         super().__init__(N,u,f,qpn)
 
     def solve():
+	self._build_stiffness()
+	self._build_force()
+	self._setup_constraints()
+
+	LHS = self.C.T @ self.K @ self.C + self.Id
+	RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
 
 
 class Projection(Solver):
