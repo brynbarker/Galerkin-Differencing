@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from IPython.display import HTML
 
+from shape_functions import *
+
 #visualization helpers
 
 def vis_3d_vals(l_func,l_a,l_b):
@@ -59,7 +61,31 @@ def vis_3d(l_func,l_a,l_b,rotate=False,extras=None):
         return fig,
 
 
+def vis_constraints(C,dofs):
+    fig = plt.figure(figsize=(5,10))
+    constrained = np.where(np.diag(C)==0)[0]
+    h = dofs[0].h
 
+    plt.plot([-.1,-.1],[-1.5*h,1+1.5*h],'grey',alpha=.2)
+    plt.plot([.1,.1],[-2*h,1+2*h],'grey',alpha=.2)
+
+    for i,ind in enumerate(constrained):
+        dof_inds = np.nonzero(C[ind])[0]
+        
+        f_y = dofs[ind].y
+        for c_ind in dof_inds:
+            c_y = dofs[c_ind].y
+            plt.plot([-.11,.11],[f_y,f_y],'grey',alpha=.2)
+            plt.plot([-.1,.1],[f_y,c_y],'C'+str(i),alpha=.8)
+            plt.scatter([-.1,.1],[f_y,c_y],c='k')
+
+    #plt.annotate('Coarse',(-.1,1+2*h))
+    #plt.annotate('Fine',(.1,1+2*h))
+    #plt.xticks()
+    plt.xlim(-.11,.11)
+    plt.ylim(-1.5*h,1+1.5*h)
+    plt.title('Constarints at Coarse/Fine Interface')
+    plt.show()
 
 #animators
 
@@ -144,7 +170,7 @@ def local_stiffness(h,interface=False,top=False,qpn=5):
         test_ind = id_to_ind[test_id]
         grad_phi_test = lambda x,y: grad_phi3_ref(x,y,h,test_ind,interface,top)
 
-        for trial_id in range(i,16):
+        for trial_id in range(test_id,16):
 
             trial_ind = id_to_ind[trial_id]
             grad_phi_trial = lambda x,y: grad_phi3_ref(x,y,h,trial_ind,interface,top)

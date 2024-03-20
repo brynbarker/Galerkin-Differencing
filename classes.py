@@ -1,17 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.linalg as la
+
+from helpers import *
+
 
 class Node:
-    def __init__(self,j,i,x,y,h):
-        self.ID
+    def __init__(self,ID,j,i,x,y,h):
+        self.ID = ID
         self.j = j
         self.i = i
-        self.x
-        self.y
-        self.h
+        self.x = x
+        self.y = y
+        self.h = h
 
 class Element:
-    def _init__(self,ID,j,i,x,y,h):
+    def __init__(self,ID,j,i,x,y,h):
         self.ID = ID
         self.j = j
         self.i = i
@@ -50,12 +54,12 @@ class Element:
         self.top = False
 
 class Mesh:
-    def __init(self,N):
+    def __init__(self,N):
         self.N = N # number of fine elements 
                    # from x=0.5 to x=1.0
         self.h = 0.5/N
         self.dofs = {}
-        self.elements = {}
+        self.elements = []
         self.boundaries = []
         self.interface = [[],[]]
         
@@ -74,19 +78,19 @@ class Mesh:
         dof_id,e_id = 0,0
         for i,y in enumerate(ydom):
             for j,x in enumerate(xdom):
-                self.dofs[dof_id] = Node(j,i,x,y,H)
+                self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
                 if (0<=x<.5) and (0<=y<1.):
                     strt = dof_id-1-xlen
                     element = Element(e_id,j-1,i-1,x,y,H)
                     element.add_dofs(strt,xlen)
-                    self.elements[e_id] = element
+                    self.elements.append(element)
                     e_id += 1
 
                 if x==0. or y==0. or y==1:
                     if (0<=x<=.5) and (0<=y<=1.):
                         self.boundaries.append(dof_id)
-                elif x==0.5:
+                if x==0.5:
                     self.interface[0].append(dof_id)
 
                 dof_id += 1
@@ -99,17 +103,19 @@ class Mesh:
         xdom = np.linspace(0.5-H,1.+H,self.N+3)
         ydom = np.linspace(0-H,1+H,2*self.N+3)
 
+        xlen,ylen = len(xdom),len(ydom)
+
         dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
         for i,y in enumerate(ydom):
             for j,x in enumerate(xdom):
-                self.dofs[dof_id] = Node(j,i,x,y,H)
+                self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
                 if (0.5<=x<1.) and (0<=y<1.):
                     strt = dof_id-1-xlen
                     element = Element(e_id,j-1,i-1,x,y,H)
                     element.add_dofs(strt,xlen)
                     element.set_fine()
-                    self.elements[e_id] = element
+                    self.elements.append(element)
                     e_id += 1
 
                 if x==1. or y==0. or y==1:
@@ -117,9 +123,9 @@ class Mesh:
                         self.boundaries.append(dof_id)
                 elif x==0.5 and 0<y<1:
                     self.interface[1].append(dof_id)
-                    self.elements[e_id-1].set_interface()
-                    if int(y/2/h)%1 == 0:
-                        self.elements[e_id-1].set_not_top()
+                    element.set_interface()
+                    if int(y/2/self.h)%1 == 0:
+                        element.set_not_top()
 
                 dof_id += 1
 
@@ -138,19 +144,23 @@ class Solver:
         self.h = self.mesh.h
 
         self.solved = False
+        self.C = None
+        self.Id = None
 
     def _build_force(self):
         num_dofs = len(self.mesh.dofs)
         self.F = np.zeros(num_dofs)
+
+        id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
         for e in self.mesh.elements:
 
             for test_id,dof in enumerate(e.dof_list):
 
                 test_ind = id_to_ind[test_id]
-                phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind,e.interface,e.top)
+                phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind,e.interface,e.top)
                 func = lambda x,y: phi_test(x,y) * self.ffunc(x,y)
-                val = gauss(func,0,h,0,h,self.qpn)
+                val = gauss(func,0,e.h,0,e.h,self.qpn)
 
                 self.F[dof.ID] += val
 
@@ -194,49 +204,75 @@ class Solver:
                 self.M[dof.ID,e.dof_ids] += local_m[test_id]
 
     def _setup_constraints(self):
-        num_dofs = len(self.dofs)
+        num_dofs = len(self.mesh.dofs)
         self.Id = np.zeros((num_dofs,num_dofs))
         self.C = np.eye(num_dofs)
-	self.dirichlet = np.zeros((num_dofs))
+        self.dirichlet = np.zeros(num_dofs)
 
         A0,A1,A2,A3 = [phi3(j*self.h/4,self.h) for j in [1,3,5,7]]
-        a0,a1 = [phi4(j*self.h/2,self.h) for j in [1,3]]
-	V = 1/(a0**2-a1**2)*np.array([[a0,a1],[a1,a0]]) *\
-	    np.array([[A3,A1-a1,A0-a0,A2,0],[0,a2,A0-a0,A1-a1,A3]])
-	
-	c_inter,f_inter = self.mesh.interface
-	for dof_id in f_inter:
-		self.Id[dof_id,dof_id] = 1
-		self.C[dof_id] *= 0
-	self.C[f_inter[1:-1:2],c_inter[2:-2]] = 1
-	for ind in range(5):
-		self.C[f_inter[::4],c_inter[ind::2]] = V[0][ind]
-		self.C[f_inter[2::4],c_inter[ind::2]] = V[1][ind]
+        a0,a1 = [phi3(j*self.h/2,self.h) for j in [1,3]]
 
-	for dof_id in self.mesh.boundaries:
-		self.Id[dof_id] = 1
-		self.C[dof_id] *= 0
-		x,y = self.dofs[dof_id].x,self.dofs[dof_id].y
-		self.dirichlet[dof_id] = self.ufunc(x,y)
+        V = 1/(a0**2-a1**2) * np.array([[a0,-a1],[-a1,a0]]) @\
+                np.array([[A3,A1-a1,A0-a0,A2,0],[0,A2,A0-a0,A1-a1,A3]])
+
+        c_inter,f_inter = self.mesh.interface
+        self.Id[f_inter,f_inter] = 1
+        self.C[f_inter] *= 0
+
+        self.C[f_inter[1:-1:2],c_inter[2:-2]] = 1
+
+        for ind in range(4):
+            end = ind-3 if ind < 3 else None
+            self.C[f_inter[::4],c_inter[ind:end:2]] = V[0][ind]
+            self.C[f_inter[2::4],c_inter[ind:end:2]] = V[1][ind]
+
+    def solve(self):
+        print('virtual not overwritten')
+
+    def vis_constraints(self):
+        if self.C is not None:
+            vis_constraints(self.C,self.mesh.dofs)
+        else:
+            print('Constraints have not been set')
+
+    def vis_mesh(self):
+        for dof in self.dofs.values():
+            plt.scatter(dof.x,dof.y)
+        plt.show()
+
+    def vis_dofs(self):
+        pass
+
+    def vis_elements(self):
+        pass
 
     def sol(self, weights=None):
         if weights is None:
             assert self.solved
-            weights = 
+            weights = self.U
 
 class Laplace(Solver):
     def __init__(self,N,u,f,qpn=5):
         super().__init__(N,u,f,qpn)
 
-    def solve():
-	self._build_stiffness()
-	self._build_force()
-	self._setup_constraints()
-
-	LHS = self.C.T @ self.K @ self.C + self.Id
-	RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
+    def solve(self):
+        self._build_stiffness()
+        self._build_force()
+        self._setup_constraints()
+        #LHS = self.C.T @ self.K @ self.C + self.Id
+        #RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
+        #x = la.solve(LHS,RHS)
+        #self.U = self.C @ x + self.dirichlet
+        #self.solved = True
 
 
 class Projection(Solver):
     def __init__(self,N,u,qpn=5):
         super().__init__(N,u,u,qpn)
+
+    def solve(self):
+        self._build_mass()
+        self._build_force()
+        self._setup_constraints()
+
+
