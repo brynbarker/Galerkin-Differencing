@@ -111,16 +111,19 @@ def vis_3d_rotate(figs):
 def animate_2d(frames,data,size,figsize=(10,10),yesdot=True):
     fig,ax = plt.subplots(figsize=figsize)
     frame = frames[0]
-    ax.set_xlim(frame[0][0],frame[0][-1])
-    ax.set_ylim(min(data[0][0][1])-.1,max(data[0][0][1])+.1)
+    if yesdot:
+        ax.set_xlim(-.2,1.2)
+        ax.set_ylim(-.2,1.2)
+    else:
+        ax.set_xlim(frame[0][0],frame[0][-1])
+        ax.set_ylim(min(data[0][0][1])-.1,max(data[0][0][1])+.1)
     
     line, = ax.plot(frame[0],frame[1],'lightgrey')
-    blocks, dots = [], []
+    blocks = []
+    if yesdot: dot, = ax.plot([],[],'ko',linestyle='None')
     for i in range(size):
         block, = ax.plot([],[])
-        if yesdot: dot, = ax.plot([],[],c='k',marker='o')
         blocks.append(block)
-        if yesdot: dots.append(dot)
 
     def update(n):
         if yesdot: blocks_n, dots_n = data[n]
@@ -131,15 +134,14 @@ def animate_2d(frames,data,size,figsize=(10,10),yesdot=True):
         for i in range(size):
             if i < len(blocks_n):
                 blocks[i].set_data(blocks_n[i][0],blocks_n[i][1])
-                if yesdot: dots[i].set_data(dots_n[i][0],dots_n[i][1])
             else:
                 blocks[i].set_data([],[])
-                if yesdot: dots[i].set_data([],[])
+        if yesdot: dot.set_data(dots_n[0],dots_n[1])
         to_return = [line]+blocks
-        if yesdot: to_return += dots
+        if yesdot: to_return += [dot]
         return to_return
-
-    ani = FuncAnimation(fig, update, frames=len(data), interval=100)
+    interval = 400 if yesdot else 100
+    ani = FuncAnimation(fig, update, frames=len(data), interval=interval)
     plt.close()
     return HTML(ani.to_html5_video())
 
@@ -178,8 +180,8 @@ def local_stiffness(h,interface=False,top=False,qpn=5):
             func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
             val = gauss(func,0,h,0,h,qpn)
 
-            K[test_ind,trial_ind] += val
-            K[trial_ind,test_ind] += val * (test_ind != trial_ind)
+            K[test_id,trial_id] += val
+            K[trial_id,test_id] += val * (test_id != trial_id)
     return K
 
 def local_mass(h,interface=False,top=False,qpn=5):
@@ -199,7 +201,7 @@ def local_mass(h,interface=False,top=False,qpn=5):
             func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
             val = gauss(func,0,h,0,h,qpn)
 
-            M[test_ind,trial_ind] += val
-            M[trial_ind,test_ind] += val * (test_ind != trial_ind)
+            M[test_id,trial_id] += val
+            M[trial_id,test_id] += val * (test_id != trial_id)
     return M
 

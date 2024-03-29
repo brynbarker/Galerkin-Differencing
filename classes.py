@@ -13,6 +13,11 @@ class Node:
         self.x = x
         self.y = y
         self.h = h
+        self.elements = {}
+
+    def add_element(self,e):
+        if e.ID not in self.elements.keys():
+            self.elements[e.ID] = e
 
 class Element:
     def __init__(self,ID,j,i,x,y,h):
@@ -27,6 +32,8 @@ class Element:
         self.interface = False
         self.fine = False
         self.top = True
+        self.plot = [[x,x+h,x+h,x,x],
+                     [y,y,y+h,y+h,y]]
 
     def add_dofs(self,strt,xlen):
         if len(self.dof_ids) != 0:
@@ -41,6 +48,7 @@ class Element:
             return
         for dof_id in self.dof_ids:
             dof = dofs[dof_id]
+            dof.add_element(self)
             self.dof_list.append(dof)
         return
 
@@ -121,11 +129,12 @@ class Mesh:
                 if x==1. or y==0. or y==1:
                     if (.5<=x<=.1) and (0<=y<=1.):
                         self.boundaries.append(dof_id)
-                elif x==0.5 and 0<y<1:
+                if x==0.5:
                     self.interface[1].append(dof_id)
-                    element.set_interface()
-                    if int(y/2/self.h)%1 == 0:
-                        element.set_not_top()
+                    if 0 <= y < 1:
+                        element.set_interface()
+                        if (y/2/self.h)%1 == 0:
+                            element.set_not_top()
 
                 dof_id += 1
 
@@ -219,12 +228,25 @@ class Solver:
         self.Id[f_inter,f_inter] = 1
         self.C[f_inter] *= 0
 
-        self.C[f_inter[1:-1:2],c_inter[2:-2]] = 1
+        self.C[f_inter[1:-1:2],c_inter[1:-1]] = 1
 
-        for ind in range(4):
-            end = ind-3 if ind < 3 else None
-            self.C[f_inter[::4],c_inter[ind:end:2]] = V[0][ind]
-            self.C[f_inter[2::4],c_inter[ind:end:2]] = V[1][ind]
+        for ind in range(5):
+            end = ind-4 if ind < 4 else None
+            self.C[f_inter[2:-1:4],c_inter[ind:end:2]] = V[0][ind]
+            self.C[f_inter[4::4],c_inter[ind:end:2]] = V[1][ind]
+
+        self.C[f_inter[0]] = -a0/a1*self.C[f_inter[2]]
+        self.C[f_inter[-1]] = -a0/a1*self.C[f_inter[-3]]
+
+        self.C[f_inter[0],c_inter[:4]] += np.array([A2,A0-a0,A1-a1,A3])/a1
+        self.C[f_inter[-1],c_inter[-4:]] += np.array([A3,A1-a1,A0-a0,A2])/a1
+
+        for dof_id in self.mesh.boundaries:
+            self.C[dof_id] *= 0
+            self.Id[dof_id,dof_id] = 1.
+            x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
+            self.dirichlet[dof_id] = self.ufunc(x,y)
+
 
     def solve(self):
         print('virtual not overwritten')
@@ -236,15 +258,34 @@ class Solver:
             print('Constraints have not been set')
 
     def vis_mesh(self):
-        for dof in self.dofs.values():
+        for dof in self.mesh.dofs.values():
             plt.scatter(dof.x,dof.y)
         plt.show()
 
     def vis_dofs(self):
-        pass
+        frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
+        data = []
+        for dof in self.mesh.dofs.values():
+            blocks = []
+            dots = [[dof.x],[dof.y]]
+            for e in dof.elements.values():
+                blocks.append(e.plot)
+            data.append([blocks,dots])
+
+        return animate_2d([frame],data,16)
 
     def vis_elements(self):
-        pass
+        frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
+        data = []
+        for e in self.mesh.elements:
+            blocks = [e.plot]
+            dots = [[],[]]
+            for dof in e.dof_list:
+                dots[0].append(dof.x)
+                dots[1].append(dof.y)
+            data.append([blocks,dots])
+
+        return animate_2d([frame],data,16)
 
     def sol(self, weights=None):
         if weights is None:
@@ -259,11 +300,11 @@ class Laplace(Solver):
         self._build_stiffness()
         self._build_force()
         self._setup_constraints()
-        #LHS = self.C.T @ self.K @ self.C + self.Id
-        #RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
-        #x = la.solve(LHS,RHS)
-        #self.U = self.C @ x + self.dirichlet
-        #self.solved = True
+        LHS = self.C.T @ self.K @ self.C + self.Id
+        RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
+        x = la.solve(LHS,RHS)
+        self.U = self.C @ x + self.dirichlet
+        self.solved = True
 
 
 class Projection(Solver):
