@@ -193,7 +193,7 @@ def local_mass(h,interface=False,top=False,qpn=5):
         test_ind = id_to_ind[test_id]
         phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind,interface,top)
 
-        for trial_id in range(i,16):
+        for trial_id in range(test_id,16):
 
             trial_ind = id_to_ind[trial_id]
             phi_trial = lambda x,y: phi3_2d_ref(x,y,h,trial_ind,interface,top)

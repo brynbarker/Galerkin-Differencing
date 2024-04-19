@@ -127,7 +127,7 @@ class Mesh:
                     e_id += 1
 
                 if x==1. or y==0. or y==1:
-                    if (.5<=x<=.1) and (0<=y<=1.):
+                    if (.5<x<=1) and (0<=y<=1.):
                         self.boundaries.append(dof_id)
                 if x==0.5:
                     self.interface[1].append(dof_id)
@@ -229,6 +229,7 @@ class Solver:
         self.C[f_inter] *= 0
 
         self.C[f_inter[1:-1:2],c_inter[1:-1]] = 1
+        # self.C[f_inter[::2],c_inter[:]] = 1
 
         for ind in range(5):
             end = ind-4 if ind < 4 else None
@@ -288,9 +289,30 @@ class Solver:
         return animate_2d([frame],data,16)
 
     def sol(self, weights=None):
+        n_x_els = [self.N/2,self.N]
+
         if weights is None:
             assert self.solved
             weights = self.U
+
+        def solution(x,y):
+            x += 1e-12
+            fine = True if x >= 0.5 else False
+            x_ind = int((x-fine*.5)/((2-fine)*self.h))
+            y_ind = int(y/((2-fine)*self.h))
+            el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
+            e = self.mesh.elements[int(el_ind)]
+            assert x >= min(e.plot[0]) and x <= max(e.plot[0])
+            assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+
+            id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+            val = 0
+            for local_id, dof in enumerate(e.dof_list):
+                local_ind = id_to_ind[local_id]
+                val += weights[dof.ID]*phi3_2d_eval(x,y,dof.h,dof.x,dof.y)
+            
+            return val
+        return solution
 
 class Laplace(Solver):
     def __init__(self,N,u,f,qpn=5):
@@ -315,5 +337,10 @@ class Projection(Solver):
         self._build_mass()
         self._build_force()
         self._setup_constraints()
+        LHS = self.C.T @ self.M @ self.C + self.Id
+        RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
+        x = la.solve(LHS,RHS)
+        self.U = self.C @ x + self.dirichlet
+        self.solved = True
 
 
