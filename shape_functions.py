@@ -35,7 +35,7 @@ def phi3_interface_dy(y,h,s,coll=True):
     d_fine = phi3_dx(y,h)
     
     if coll:
-        d_coarse = phi3_dx(y/2,h)
+        d_coarse = phi3_dx(y/2,h)/2
     else:
         if -2*h < y <= -h:
             d_coarse = phi3_dx((y-h)/2,h)/2
