@@ -15,7 +15,7 @@ def phi3(x,h):
 
 def phi3_interface(y,h,s,coll=True):
     if y > 2*h or y <= -2*h: return 0
-    fine = phi3(y,h)
+    # fine = phi3(y,h)
     
     if coll:
         coarse = phi3(y/2,h)
