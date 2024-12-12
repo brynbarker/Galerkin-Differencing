@@ -15,11 +15,15 @@ def phi3(x,h):
 
 def phi3_interface(y,h,s,coll=True):
     if y > 2*h or y <= -2*h: return 0
-    # fine = phi3(y,h)
+    fine = phi3(y,h)
     
     if coll:
         coarse = phi3(y/2,h)
     else:
+        # if y <= 0:
+        #     coarse = phi3(y/2-h,h)
+        # else:
+        #     coarse = phi3(y/2+h,h)
         if -2*h < y <= -h:
             coarse = phi3((y-h)/2,h)
         elif -h < y <= 0:
@@ -37,6 +41,10 @@ def phi3_interface_dy(y,h,s,coll=True):
     if coll:
         d_coarse = phi3_dx(y/2,h)/2
     else:
+        # if y <= 0:
+        #     d_coarse = phi3(y/2-h,h)/2
+        # else:
+        #     d_coarse = phi3(y/2+h,h)/2
         if -2*h < y <= -h:
             d_coarse = phi3_dx((y-h)/2,h)/2
         elif -h < y <= 0:
@@ -54,6 +62,10 @@ def phi3_interface_dx(y,h,s,coll=True):
     if coll:
         coarse = phi3(y/2,h)
     else:
+        # if y <= 0:
+        #     coarse = phi3(y/2-h,h)
+        # else:
+        #     coarse = phi3(y/2+h,h)
         if -2*h < y <= -h:
             coarse = phi3((y-h)/2,h)
         elif -h < y <= 0:
