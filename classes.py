@@ -236,22 +236,52 @@ class Solver:
 		self.Id[f_inter,f_inter] = 1
 		self.C[f_inter] *= 0
 
+        # collocated are set to the coarse node
 		self.C[f_inter[::2],c_inter[:]] = 1
+
+		f_odd = f_inter[1::2]
+		five = phi3(5/4,1)
+		seven = phi3(7/4,1)
+    
+		tmp = len(f_odd)
+		v_left = seven*(np.diag(np.ones(tmp-1),-1)+np.diag(np.ones(tmp-1),1))+2*five*np.diag(np.ones(tmp),0)
+		v_right = (five+seven)*(np.diag(np.ones(tmp-2),2)+np.diag(np.ones(tmp-1),-1))
+
+		v_left[0,-1] = five
+		v_left[-1,0] = five
+		v_right[0,-1] = five+seven
+		v_right[-1,1] = five+seven
+		v_right[-2,0] = five+seven
+
+		scalar_mat = np.linalg.inv(v_left) @ v_right
+		print(v_left,v_right,sep='\n')
+
+		for ind,ID in enumerate(f_odd):
+			non_zero = np.nonzero(scalar_mat[ind])[0]
+			for loc_id in non_zero:
+				self.C[ID,int(c_inter[loc_id])] = scalar_mat[ind,loc_id]
+    
+        # non collocated are the sum of the coarse nodes 3 steps away
+		# self.C[f_inter[3::2],c_inter[:-1]] = 1
+		# self.C[f_inter[1:-3:2],c_inter[2:]] = 1
+
+		# self.C[f_inter[1],c_inter[-1]] = 1
+		# self.C[f_inter[-1],c_inter[1]] = 1
 		# self.C[f_inter[::2],c_inter[:]] = 1
 
-		for ind in range(5):
-			end = ind-2 if ind < 2 else None
-			fend = None if ind < 3 else -3
-			if ind == 0:
-				self.C[f_inter[5:-1:4],c_inter[1:end:2]] = V[0][ind]
-				self.C[f_inter[7::4],c_inter[1:end:2]] = V[1][ind]
-			else:
-				self.C[f_inter[1:fend:4],c_inter[ind-1:end:2]] = V[0][ind]
-				self.C[f_inter[3:fend:4],c_inter[ind-1:end:2]] = V[1][ind]
+		# for ind in range(5):
+		# 	end = ind-2 if ind < 2 else None
+		# 	fend = None if ind < 3 else -3
+		# 	if ind == 0:
+		# 		self.C[f_inter[5:-1:4],c_inter[1:end:2]] = V[0][ind]
+		# 		self.C[f_inter[7::4],c_inter[1:end:2]] = V[1][ind]
+		# 	else:
+		# 		self.C[f_inter[1:fend:4],c_inter[ind-1:end:2]] = V[0][ind]
+		# 		self.C[f_inter[3:fend:4],c_inter[ind-1:end:2]] = V[1][ind]
 
-		self.C[f_inter[1:4:2],[c_inter[-1]]*2] = V[:,0]
-		self.C[f_inter[-3::2],[c_inter[0]]*2] = V[:,3]
-		self.C[f_inter[-3::2],[c_inter[1]]*2] = V[:,4]
+		# self.C[f_inter[1:4:2],[c_inter[-1]]*2] = V[:,0]
+		# self.C[f_inter[-3::2],[c_inter[0]]*2] = V[:,3]
+		# self.C[f_inter[-3::2],[c_inter[1]]*2] = V[:,4]
 
 		#self.C[f_inter[0]] = -a0/a1*self.C[f_inter[2]]
 		#self.C[f_inter[-1]] = -a0/a1*self.C[f_inter[-3]]
@@ -320,24 +350,28 @@ class Solver:
 
 		return animate_2d([frame],data,16)
 
-	def sol(self, weights=None):
+	def xy_to_e(self,x,y):
 		n_x_els = [self.N/2,self.N]
+        
+		x -= (x==1)*1e-12
+		y -= (y==1)*1e-12
+		fine = True if x >= 0.5 else False
+		x_ind = int((x-fine*.5)/((2-fine)*self.h))
+		y_ind = int(y/((2-fine)*self.h))
+		el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
+		e = self.mesh.elements[int(el_ind)]
+		assert x >= min(e.plot[0]) and x <= max(e.plot[0])
+		assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+		return e
+
+	def sol(self, weights=None):
 
 		if weights is None:
 			assert self.solved
 			weights = self.U
 
 		def solution(x,y):
-			x -= (x==1)*1e-12
-			y -= (y==1)*1e-12
-			fine = True if x >= 0.5 else False
-			x_ind = int((x-fine*.5)/((2-fine)*self.h))
-			y_ind = int(y/((2-fine)*self.h))
-			el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
-			e = self.mesh.elements[int(el_ind)]
-			#print(x,y,x_ind,y_ind,el_ind,e.plot)
-			assert x >= min(e.plot[0]) and x <= max(e.plot[0])
-			assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+			e = self.xy_to_e(x,y)
 
 			id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 			val = 0

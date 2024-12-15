@@ -126,7 +126,7 @@ def phi3_2d_eval(x_in,y_in,h,x0,y0):
     dist = x_in-0.5
     s = dist/h
     coll = 1-int(y0/h)%2
-    interface = 0 < dist <= h
+    interface = 0 <= dist <= h
     return phi3_2d(x,y,h,s,interface,coll)
 
 def phi3_2d_ref(x_ref,y_ref,h,ind,interface=False,top=False):
