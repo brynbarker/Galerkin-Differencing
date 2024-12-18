@@ -240,18 +240,20 @@ class Solver:
 		self.C[f_inter[::2],c_inter[:]] = 1
 
 		f_odd = f_inter[1::2]
-		five = phi3(5/4,1)
-		seven = phi3(7/4,1)
+		# five = phi3(5/4,1)
+		# seven = phi3(7/4,1)
     
 		tmp = len(f_odd)
-		v_left = seven*(np.diag(np.ones(tmp-1),-1)+np.diag(np.ones(tmp-1),1))+2*five*np.diag(np.ones(tmp),0)
-		v_right = (five+seven)*(np.diag(np.ones(tmp-2),2)+np.diag(np.ones(tmp-1),-1))
+		v_left = (np.diag(np.ones(tmp-1),-1)+np.diag(np.ones(tmp-1),1))/2+np.diag(np.ones(tmp),0)
+		v_right = np.diag(np.ones(tmp-2),2)+np.diag(np.ones(tmp-1),-1)
+		# v_left = seven*(np.diag(np.ones(tmp-1),-1)+np.diag(np.ones(tmp-1),1))+2*five*np.diag(np.ones(tmp),0)
+		# v_right = (five+seven)*(np.diag(np.ones(tmp-2),2)+np.diag(np.ones(tmp-1),-1))
 
-		v_left[0,-1] = five
-		v_left[-1,0] = five
-		v_right[0,-1] = five+seven
-		v_right[-1,1] = five+seven
-		v_right[-2,0] = five+seven
+		v_left[0,-1] = 1/2
+		v_left[-1,0] = 1/2
+		v_right[0,-1] = 1
+		v_right[-1,1] = 1
+		v_right[-2,0] = 1
 
 		scalar_mat = np.linalg.inv(v_left) @ v_right
 		print(v_left,v_right,sep='\n')
