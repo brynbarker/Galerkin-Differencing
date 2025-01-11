@@ -59,13 +59,16 @@ class Element:
 
 	def set_fine(self):
 		self.fine = True
-        
+		
 	def set_interface(self):
+		self.plot[1][2] -= self.h/4
+		self.plot[1][3] -= self.h/4
+		self.dom[-1] -= self.h/4
 		self.interface = True
 
-	def set_interface_half(self):
-		self.dom[2] = self.y+self.h/2
-		self.half = True
+	#def set_interface_half(self):
+	#	self.dom[2] = self.y+self.h/2
+	#	self.half = True
 
 class Mesh:
 	def __init__(self,N):
@@ -92,6 +95,9 @@ class Mesh:
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
+			if (i == ylen-1):
+				y -= H/4
+			interface_element = (i == ylen-2)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
@@ -101,6 +107,7 @@ class Mesh:
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
 					e_id += 1
+					if interface_element: element.set_interface()
 
 				if y<0:
 					if True:#(0<=x<=.5) and (0<=y<=1.):
@@ -140,10 +147,10 @@ class Mesh:
 					self.boundaries.append(dof_id)
 				elif x < H or x > 1.-H:
 					self.periodic[1].append(dof_id)
-				if (y < 0.5+2*H) and (0 <= x < 1):
+				if (y < 0.5+H) and (0 <= x < 1):
 					self.interface[1].append(dof_id)
-					element.set_interface()
-					if y < 0.5+H: element.set_interface_half()
+					#element.set_interface()
+					# if y < 0.5+H: element.set_interface_half()
 
 				dof_id += 1
 
@@ -188,13 +195,13 @@ class Solver:
 		self.K = np.zeros((num_dofs,num_dofs))
 
 		id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
-        
+		
 		k_coarse = local_stiffness(2*self.h,qpn=self.qpn)
 		k_fine = local_stiffness(self.h,qpn=self.qpn)
-        
+		
 		kh_coarse_top = local_stiffness(2*self.h,qpn=self.qpn,half=1)
 		kh_coarse_bot = local_stiffness(2*self.h,qpn=self.qpn,half=0)
-        
+		
 		kh_fine_top = local_stiffness(self.h,qpn=self.qpn,half=1)
 		kh_fine_bot = local_stiffness(self.h,qpn=self.qpn,half=0)
 
@@ -217,12 +224,12 @@ class Solver:
 		id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
 		base_m = local_mass(self.h,qpn=self.qpn)
-    
+	
 		top_m = local_mass(self.h,qpn=self.qpn,half=1)
 		bot_m = local_mass(self.h,qpn=self.qpn,half=0)
-		half_ms = [m_top,m_bot]
+		half_ms = [top_m,bot_m]
 
-		interface_m = local_mass_interface(self.h,qpn=self.qpn)
+		interface_m = local_mass(self.h*2,qpn=self.qpn,I=True)
 
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 4
@@ -230,7 +237,7 @@ class Solver:
 				if e.half:
 					self.M[dof.ID,e.dof_ids] += half_ms[e.y<0][test_id] * scale
 				elif e.interface:
-					self.M[dof.ID,e.dof_ids] += interface_m[test_id] * scale
+					self.M[dof.ID,e.dof_ids] += interface_m[test_id]
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
 
@@ -240,14 +247,24 @@ class Solver:
 		self.C = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
 
-        # dirichlet
+		c_inter,f_inter = self.mesh.interface
+		self.Id[f_inter] = 1
+		self.C[f_inter] *= 0
+
+        # collocated are set to the coarse node
+		self.C[f_inter[::2],c_inter[:]] = 1
+
+		self.C[f_inter[1::2],np.roll(c_inter,-1)] = 1/2
+		self.C[f_inter[1::2],c_inter] = 1/2
+
+		# dirichlet
 		for dof_id in self.mesh.boundaries:
 			self.C[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
 			self.dirichlet[dof_id] = self.ufunc(x,y)
 
-        # periodic
+		# periodic
 		for level in range(2):
 			# lower case are ghosts, upper case are true dofs
 			B0,t0 = np.array(self.mesh.periodic[level]).reshape((-1,2)).T
@@ -302,10 +319,10 @@ class Solver:
 
 	def xy_to_e(self,x,y):
 		n_x_els = [self.N,2*self.N]
-        
-		x -= (x==1)*1e-12
-		y -= (y==1)*1e-12
-		fine = True if y >= 0.5+self.h else False
+		
+		x -= (x==1)*1e-14
+		y -= (y==1)*1e-14
+		fine = True if y >= 0.5+self.h/2 else False
 
 		if fine:
 			y_ind = int((y-.5)/self.h-1/2)
@@ -332,7 +349,7 @@ class Solver:
 			val = 0
 			for local_id, dof in enumerate(e.dof_list):
 				local_ind = id_to_ind[local_id]
-				val += weights[dof.ID]*phi1_2d_eval(x,y,dof.h,dof.x,dof.y)
+				val += weights[dof.ID]*phi1_2d_eval(x,y,dof.h,dof.x,dof.y,e.interface)
 			
 			return val
 		return solution

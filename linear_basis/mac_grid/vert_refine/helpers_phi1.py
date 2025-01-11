@@ -98,7 +98,7 @@ def vis_constraints(C,dofs):
 		for c_ind in dof_inds:
 			d1x,d1y = dofs[c_ind].x,dofs[c_ind].y
 	
-			if dofs[ind].y == dofs[c_ind].y:
+			if dofs[ind].h == dofs[c_ind].h:
 				if dofs[ind].h == h: color0,color1 = 'C0','C1'
 				elif dofs[ind].h == h/2: color0,color1 = 'C2','C4'
 				else: 
@@ -182,7 +182,7 @@ def gauss(f,a,b,c,d,n):
 		outer += w[j]*inner
 	return outer*xscale*yscale
 
-def local_stiffness(h,qpn=5,half=-1,L=None):
+def local_stiffness(h,qpn=5,half=-1,I=False):
 	K = np.zeros((4,4))
 	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
@@ -192,12 +192,12 @@ def local_stiffness(h,qpn=5,half=-1,L=None):
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y: grad_phi1_ref(x,y,h,test_ind,L)
+		grad_phi_test = lambda x,y: grad_phi1_ref(x,y,h,test_ind,I)
 
 		for trial_id in range(test_id,4):
 
 			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y: grad_phi1_ref(x,y,h,trial_ind,L)
+			grad_phi_trial = lambda x,y: grad_phi1_ref(x,y,h,trial_ind,I)
 
 			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
@@ -206,7 +206,7 @@ def local_stiffness(h,qpn=5,half=-1,L=None):
 			K[trial_id,test_id] += val * (test_id != trial_id)
 	return K
 
-def local_mass(h,qpn=5,half=-1,L=None):
+def local_mass(h,qpn=5,half=-1,I=False):
 	M = np.zeros((4,4))
 	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
@@ -216,38 +216,15 @@ def local_mass(h,qpn=5,half=-1,L=None):
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]
-		phi_test = lambda x,y: phi1_2d_ref(x,y,h,test_ind,L)
+		phi_test = lambda x,y: phi1_2d_ref(x,y,h,test_ind,I)
 
 		for trial_id in range(test_id,4):
 
 			trial_ind = id_to_ind[trial_id]
-			phi_trial = lambda x,y: phi1_2d_ref(x,y,h,trial_ind,L)
+			phi_trial = lambda x,y: phi1_2d_ref(x,y,h,trial_ind,I)
 
 			func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
-
-			M[test_id,trial_id] += val
-			M[trial_id,test_id] += val * (test_id != trial_id)
-	return M
-
-def local_mass_interface(h,qpn=5): #fine h value
-	M = np.zeros((4,4))
-	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
-	hvals = [2*h,2*h,h,h]
-	Lvals = [0,0,1,1]
-        
-	for test_id in range(4):
-        test_h, test_L = hvals[test_id], Lvals[test_id]
-		test_ind = id_to_ind[test_id]
-		phi_test = lambda x,y: phi1_2d_ref(x,y,test_h,test_ind,test_L)
-
-		for trial_id in range(test_id,4):
-			trial_h, trial_L = hvals[trial_id], Lvals[trial_id]
-			trial_ind = id_to_ind[trial_id]
-			phi_trial = lambda x,y: phi1_2d_ref(x,y,trial_h,trial_ind,trial_L)
-
-			func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
-			val = gauss(func,0,h,0,h,qpn)
 
 			M[test_id,trial_id] += val
 			M[trial_id,test_id] += val * (test_id != trial_id)
