@@ -26,7 +26,7 @@ def phi1_interface(y,h):
 		return 1+4/3/h*y
 	elif 0 < y <= 3/4*h:
 		return 1-4/3/h*y
-	else:
+	else::
 		return 0
 		
 def phi1_interface_dy(y,h):
@@ -50,13 +50,13 @@ def phi1_eval(y_in,h,y0,I=False):
 	return phi1(y,h)
 
 def phi1_ref(y_ref,h,i,I=False):
-	y = y_ref-h*i*(I*3/4)
+	y = y_ref-h*i*(1-I*1/4)
 	if I:
 		return phi1_interface(y,h)
 	return phi1(y,h)
 
 def grad_phi1_ref(y_ref,h,i,I=False):
-	y = y_ref-h*i*(I*3/4)
+	y = y_ref-h*i*(1-I*1/4)
 	if I:
 		return phi1_interface_dy(y,h)
 	return phi1_dy(y,h)
@@ -157,24 +157,24 @@ def gauss(f,a,b,n):
 	return integral*yscale
 
 def local_stiffness(h,qpn=5,half=-1,I=False):
-	K = np.zeros((4,4))
-	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
+	K = np.zeros((2,2))
 
 	y0 = h/2*(half>0)
 	y1 = h-h/2*(half==0)
 
-	for test_id in range(4):
+	if I:
+		y0, y1 = 0, 3/4*h
+		
+	for test_id in range(2):
 
-		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y: grad_phi1_ref(x,y,h,test_ind,I)
+		grad_phi_test = lambda y: grad_phi1_ref(y,h,test_id,I)
 
-		for trial_id in range(test_id,4):
+		for trial_id in range(test_id,2):
 
-			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y: grad_phi1_ref(x,y,h,trial_ind,I)
+			grad_phi_trial = lambda y: grad_phi1_ref(y,h,trial_id,I)
 
-			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
-			val = gauss(func,0,h,y0,y1,qpn)
+			func = lambda y: grad_phi_trial(y) * grad_phi_test(y)
+			val = gauss(func,y0,y1,qpn)
 
 			K[test_id,trial_id] += val
 			K[trial_id,test_id] += val * (test_id != trial_id)
@@ -199,7 +199,6 @@ def local_mass(h,qpn=5,half=-1,I=False):
 
 			func = lambda y: phi_trial(y) * phi_test(y)
 			val = gauss(func,y0,y1,qpn)
-			print(test_id,trial_id,val)
 
 			M[test_id,trial_id] += val
 			M[trial_id,test_id] += val * (test_id != trial_id)
@@ -283,7 +282,6 @@ class Mesh:
 		for i,y in enumerate(ydom):
 			if (i == ylen-1):
 				y -= H/4
-			print(y,dof_id)
 			interface_element = (i == ylen-2)
 			self.dofs[dof_id] = Node(dof_id,i,y,H)
 
@@ -354,9 +352,12 @@ class Solver:
 		for e in self.mesh.elements:
 			y0 = e.h/2*(e.y<0)
 			y1 = e.h-e.h/2*(e.y+e.h>1)
+			#y0,y1 = 0,e.h
+			print(e.ID,e.half,y0/e.h,y1/e.h)
+			if e.interface: y1 *= 3/4
 			for test_id,dof in enumerate(e.dof_list):
 
-				phi_test = lambda y: phi1_ref(y,e.h,test_id)
+				phi_test = lambda y: phi1_ref(y,e.h,test_id,e.interface)
 				func = lambda y: phi_test(y) * self.ffunc(y+e.y)
 				val = gauss(func,y0,y1,self.qpn)
 
@@ -366,26 +367,18 @@ class Solver:
 		num_dofs = len(self.mesh.dofs)
 		self.K = np.zeros((num_dofs,num_dofs))
 
-		k_coarse = local_stiffness(2*self.h,qpn=self.qpn)
-		k_fine = local_stiffness(self.h,qpn=self.qpn)
-		
-		kh_coarse_top = local_stiffness(2*self.h,qpn=self.qpn,half=1)
-		kh_coarse_bot = local_stiffness(2*self.h,qpn=self.qpn,half=0)
-		
-		kh_fine_top = local_stiffness(self.h,qpn=self.qpn,half=1)
-		kh_fine_bot = local_stiffness(self.h,qpn=self.qpn,half=0)
-
-		local_ks = [k_coarse,k_fine]
-		half_ks = [[kh_coarse_top,kh_coarse_bot],
-				   [kh_fine_top,kh_fine_bot]]
-
+		base_k = local_stiffness(self.h,qpn=self.qpn)
+	
+		interface_k = local_stiffness(self.h*2,qpn=self.qpn,I=True)
 		for e in self.mesh.elements:
-			local_k = local_ks[e.fine]
-			if e.half:
-				local_k = half_ks[e.fine][e.y<0]
+			scale = 1 if e.fine else 1/2
 			for test_id,dof in enumerate(e.dof_list):
-				self.K[dof.ID,e.dof_ids] += local_k[test_id]
-
+				#if e.half:
+				#	self.K[dof.ID,e.dof_ids] += base_k[test_id] * scale / 2
+				if e.interface:
+					self.K[dof.ID,e.dof_ids] += interface_k[test_id]
+				else:
+					self.K[dof.ID,e.dof_ids] += base_k[test_id] * scale
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
@@ -393,18 +386,17 @@ class Solver:
 
 		base_m = local_mass(self.h,qpn=self.qpn)
 	
-		top_m = local_mass(self.h,qpn=self.qpn,half=1)
-		bot_m = local_mass(self.h,qpn=self.qpn,half=0)
+		top_m = local_mass(self.h,qpn=self.qpn,half=0)
+		bot_m = local_mass(self.h,qpn=self.qpn,half=1)
 		half_ms = [top_m,bot_m]
 
 		interface_m = local_mass(self.h*2,qpn=self.qpn,I=True)
-
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 2
 			for test_id,dof in enumerate(e.dof_list):
-				#if e.half:
-				#	self.M[dof.ID,e.dof_ids] += half_ms[e.y<0][test_id] * scale
-				if e.interface:
+				if e.half:
+					self.M[dof.ID,e.dof_ids] += half_ms[e.y<0][test_id] * scale
+				elif e.interface:
 					self.M[dof.ID,e.dof_ids] += interface_m[test_id]
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
@@ -485,7 +477,7 @@ class Solver:
 			y_ind = int(y/2/self.h+1/2)
 		el_ind = fine*self.mesh.n_coarse_els+y_ind
 		e = self.mesh.elements[int(el_ind)]
-		assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+		assert y >= min(e.dom) and y <= max(e.dom)
 		return e
 
 	def sol(self, weights=None):
@@ -527,6 +519,7 @@ class Laplace(Solver):
 		x = la.solve(LHS,RHS)
 		self.U = self.C_rect @ x + self.dirichlet
 		self.solved = True
+		return x
 
 
 class Projection(Solver):

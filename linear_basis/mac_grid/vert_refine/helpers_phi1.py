@@ -189,6 +189,9 @@ def local_stiffness(h,qpn=5,half=-1,I=False):
 	y0 = h/2*(half>0)
 	y1 = h-h/2*(half==0)
 
+	if I:
+		y0,y1 = 0, 3/4*h
+
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]
@@ -213,6 +216,9 @@ def local_mass(h,qpn=5,half=-1,I=False):
 	y0 = h/2*(half>0)
 	y1 = h-h/2*(half==0)
         
+	if I:
+		y0,y1 = 0, 3/4*h
+
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]

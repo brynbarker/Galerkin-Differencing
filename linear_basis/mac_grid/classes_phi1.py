@@ -70,7 +70,8 @@ class Mesh:
 		self.dofs = {}
 		self.elements = []
 		self.boundaries = []
-		self.interface = [[],[]]
+		self.interface_v = [[],[]]
+		self.interface_h = [[],[]]
 		self.periodic = [[],[]]
 		
 		self._make_coarse()
@@ -78,7 +79,42 @@ class Mesh:
 
 		self._update_elements()
 
-	def _make_coarse(self):
+	def _make_coarse_bottom(self):
+		H = self.h*2
+		xdom = np.linspace(0,1,self.N+1)
+		ydom = np.linspace(0-H/2,0.5+H/2,int(self.N/2)+2)
+
+		xlen,ylen = len(xdom),len(ydom)
+
+		dof_id,e_id = 0,0
+		for i,y in enumerate(ydom):
+			if (i == ylen-1):
+				y -= H/4
+			interface_element = (i == ylen-2)
+			for j,x in enumerate(xdom):
+				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
+
+				if (y<.5) and (x<1.):
+					strt = dof_id#-xlen
+					element = Element(e_id,j,i,x,y,H)
+					element.add_dofs(strt,xlen)
+					self.elements.append(element)
+					e_id += 1
+					if interface_element: element.set_interface()
+
+				if y<0:
+					self.boundaries.append(dof_id)
+				elif x < H or x > 1.-H:
+					self.boundaries.append(dof_id)
+					#self.periodic[0].append(dof_id)
+				if (y > 0.5) and (0 <= x < 1):
+					self.interface[0].append(dof_id)
+
+				dof_id += 1
+
+		self.n_coarse_dofs = dof_id
+		self.n_coarse_els = e_id
+	def _make_coarse_corner(self):
 		H = self.h*2
 		xdom = np.linspace(0,0.5,int(self.N/2)+1)
 		ydom = np.linspace(0-H/2,1+H/2,self.N+2)

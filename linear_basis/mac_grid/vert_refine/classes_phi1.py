@@ -32,13 +32,15 @@ class Element:
 		self.fine = False
 		self.interface = False
 		self.half = False
-		self.plot = [[x,x+h,x+h,x,x],
-					 [y,y,y+h,y+h,y]]
 		self.dom = [x,x+h,y,y+h]
 
 		if y < 0 or y > 1-h:
 			self.half = True
 			self.dom = [x,x+h,max(0,y),max(0,y)+h/2]
+		
+		tmp0,tmp1 = self.dom[2:]
+		self.plot = [[x,x+h,x+h,x,x],
+					 [tmp0,tmp0,tmp1,tmp1,tmp0]]
 
 	def add_dofs(self,strt,xlen):
 		if len(self.dof_ids) != 0:
@@ -110,11 +112,9 @@ class Mesh:
 					if interface_element: element.set_interface()
 
 				if y<0:
-					if True:#(0<=x<=.5) and (0<=y<=1.):
-						self.boundaries.append(dof_id)
+					self.boundaries.append(dof_id)
 				elif x < H or x > 1.-H:
 					self.periodic[0].append(dof_id)
-				
 				if (y > 0.5) and (0 <= x < 1):
 					self.interface[0].append(dof_id)
 
@@ -149,8 +149,6 @@ class Mesh:
 					self.periodic[1].append(dof_id)
 				if (y < 0.5+H) and (0 <= x < 1):
 					self.interface[1].append(dof_id)
-					#element.set_interface()
-					# if y < 0.5+H: element.set_interface_half()
 
 				dof_id += 1
 
@@ -179,12 +177,14 @@ class Solver:
 		id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
 		for e in self.mesh.elements:
-			y0 = e.h/2*(e.y<0)
-			y1 = e.h-e.h/2*(e.y+e.h>1)
+			#y0 = e.h/2*(e.y<0)
+			#y1 = e.h-e.h/2*(e.y+e.h>1)
+			y0,y1 = 0,e.h
+			if e.interface: y1 *= 3/4
 			for test_id,dof in enumerate(e.dof_list):
 
 				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y: phi1_2d_ref(x,y,e.h,test_ind)
+				phi_test = lambda x,y: phi1_2d_ref(x,y,e.h,test_ind,e.interface)
 				func = lambda x,y: phi_test(x,y) * self.ffunc(x+e.x,y+e.y)
 				val = gauss(func,0,e.h,y0,y1,self.qpn)
 
@@ -196,26 +196,23 @@ class Solver:
 
 		id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 		
-		k_coarse = local_stiffness(2*self.h,qpn=self.qpn)
-		k_fine = local_stiffness(self.h,qpn=self.qpn)
-		
-		kh_coarse_top = local_stiffness(2*self.h,qpn=self.qpn,half=1)
-		kh_coarse_bot = local_stiffness(2*self.h,qpn=self.qpn,half=0)
-		
-		kh_fine_top = local_stiffness(self.h,qpn=self.qpn,half=1)
-		kh_fine_bot = local_stiffness(self.h,qpn=self.qpn,half=0)
+		base_k = local_stiffness(self.h,qpn=self.qpn)
+	
+		#top_k = local_stiffness(self.h,qpn=self.qpn,half=0)
+		#bot_k = local_stiffness(self.h,qpn=self.qpn,half=1)
+		#half_ks = [top_k,bot_k]
 
-		local_ks = [k_coarse,k_fine]
-		half_ks = [[kh_coarse_top,kh_coarse_bot],
-				   [kh_fine_top,kh_fine_bot]]
+		interface_k = local_stiffness(self.h*2,qpn=self.qpn,I=True)
 
 		for e in self.mesh.elements:
-			local_k = local_ks[e.fine]
-			if e.half:
-				local_k = half_ks[e.fine][e.y<0]
+			scale = 1 #if e.fine else 1/4
 			for test_id,dof in enumerate(e.dof_list):
-				self.K[dof.ID,e.dof_ids] += local_k[test_id]
-
+				#if e.half:
+				#	self.K[dof.ID,e.dof_ids] += half_ks[e.y<0][test_id]# * scale
+				if e.interface:
+					self.K[dof.ID,e.dof_ids] += interface_k[test_id]
+				else:
+					self.K[dof.ID,e.dof_ids] += base_k[test_id] * scale
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
@@ -225,8 +222,8 @@ class Solver:
 
 		base_m = local_mass(self.h,qpn=self.qpn)
 	
-		top_m = local_mass(self.h,qpn=self.qpn,half=1)
-		bot_m = local_mass(self.h,qpn=self.qpn,half=0)
+		top_m = local_mass(self.h,qpn=self.qpn,half=0)
+		bot_m = local_mass(self.h,qpn=self.qpn,half=1)
 		half_ms = [top_m,bot_m]
 
 		interface_m = local_mass(self.h*2,qpn=self.qpn,I=True)
@@ -251,7 +248,7 @@ class Solver:
 		self.Id[f_inter] = 1
 		self.C[f_inter] *= 0
 
-        # collocated are set to the coarse node
+		# collocated are set to the coarse node
 		self.C[f_inter[::2],c_inter[:]] = 1
 
 		self.C[f_inter[1::2],np.roll(c_inter,-1)] = 1/2
