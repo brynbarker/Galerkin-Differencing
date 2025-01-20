@@ -131,8 +131,9 @@ class HorizontalRefineSolver(Solver):
 		fig = vis_constraints(self.C_full,self.mesh.dofs,self.mesh.interface[1],'horiz')
 		if retfig: return fig
 
-	def vis_periodic(C,dofs,gridtype='horiz'):
-		fig = super().vis_periodic(C,dofs,'horiz')
+	def vis_periodic(self,retfig=False):
+		fig = super().vis_periodic('horiz')
+		if retfig: return fig
 
 	def xy_to_e(self,x,y): # over_written
 		n_x_els = [self.N/2,self.N]
