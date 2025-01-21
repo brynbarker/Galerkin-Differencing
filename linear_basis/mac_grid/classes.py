@@ -33,18 +33,9 @@ class Element:
 		self.dof_list = []
 		self.fine = False
 		self.interface = False
-		self.half = False
 		self.dom = [x,x+h,y,y+h]
 		self.plot = [[x,x+h,x+h,x,x],
 					 [y,y,y+h,y+h,y]]
-
-		#if y < 0 or y > 1-h:
-		#	self.half = True
-		#	self.dom = [x,x+h,max(0,y),max(0,y)+h/2]
-		
-		#tmp0,tmp1 = self.dom[2:]
-		#self.plot = [[x,x+h,x+h,x,x],
-		#			 [tmp0,tmp0,tmp1,tmp1,tmp0]]
 
 	def add_dofs(self,strt,xlen):
 		if len(self.dof_ids) != 0:
@@ -118,7 +109,6 @@ class Solver:
 		self.U_proj = None
 
 		self._solved = False
-		self._use_halves = True
 
 		self._setup_constraints()
 
@@ -131,9 +121,6 @@ class Solver:
 
 		for e in self.mesh.elements:
 			y0,y1 = 0,e.h
-			#if self._use_halves:
-			#	y0 = e.h/2*(e.y<0)
-			#	y1 = e.h-e.h/2*(e.y+e.h>1)
 			if e.interface: y1 *= 3/4
 			for test_id,dof in enumerate(e.dof_list):
 				test_ind = id_to_ind[test_id]
@@ -155,17 +142,11 @@ class Solver:
 		
 		base_k = local_stiffness(self.h,qpn=self.qpn)
 	
-		if self._use_halves:
-			top_k = local_stiffness(self.h,qpn=self.qpn,half=0)
-			half_ks = [top_k,top_k.copy()[::-1,::-1]]
-
 		interface_k = local_stiffness(self.h*2,qpn=self.qpn,I=True)
 
 		for e in self.mesh.elements:
 			for test_id,dof in enumerate(e.dof_list):
-				if self._use_halves and e.half:
-					self.K[dof.ID,e.dof_ids] += half_ks[e.y<0][test_id]
-				elif e.interface:
+				if e.interface:
 					self.K[dof.ID,e.dof_ids] += interface_k[test_id]
 				else:
 					self.K[dof.ID,e.dof_ids] += base_k[test_id]
@@ -178,18 +159,12 @@ class Solver:
 
 		base_m = local_mass(self.h,qpn=self.qpn)
 	
-		if self._use_halves:
-			top_m = local_mass(self.h,qpn=self.qpn,half=0)
-			half_ms = [top_m,top_m.copy()[::-1,::-1]]
-
 		interface_m = local_mass(self.h*2,qpn=self.qpn,I=True)
 
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 4
 			for test_id,dof in enumerate(e.dof_list):
-				if self._use_halves and e.half:
-					self.M[dof.ID,e.dof_ids] += half_ms[e.y<0][test_id] * scale
-				elif e.interface:
+				if e.interface:
 					self.M[dof.ID,e.dof_ids] += interface_m[test_id]
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
@@ -226,15 +201,6 @@ class Solver:
 	def add_field(self,u):
 		self.ufunc = u
 
-	def turn_off_halves(self):
-		self._use_halves = False
-
-	def turn_on_halves(self):
-		self._use_halves = True
-
-	def check_halves(self):
-		print('use halves = '+str(self._use_halves))
-
 	def vis_constraints(self):
 		print('virtual not overwritten')
 		vis_constraints(self.C_full,self.mesh.dofs)
@@ -243,7 +209,7 @@ class Solver:
 		fig = vis_periodic(self.C_full,self.mesh.dofs,gridtype)
 		return fig
 
-	def vis_mesh(self):
+	def vis_mesh(self,corner=False):
 		fig,ax = plt.subplots(1,figsize=(7,7))
 		mk = ['^','o']
 		for dof in self.mesh.dofs.values():
@@ -252,7 +218,8 @@ class Solver:
 				plt.scatter(dof.x,dof.y,marker=m,color='k',label='dof')
 			plt.scatter(dof.x,dof.y,marker=m,color='k')
 
-		fine_inter = self.mesh.interface[1][0]+self.mesh.interface[1][1]
+		fine_inter = [dof for side in self.mesh.interface[2*corner+1] for dof in side]
+		#fine_inter = self.mesh.interface[2*corner+1][0]+self.mesh.interface[2*corner+1][1]
 		for i,i_id in enumerate(fine_inter):
 			assert self.Id[i_id]
 			dof = self.mesh.dofs[i_id]
@@ -295,37 +262,6 @@ class Solver:
 		plt.show()
 		return
 
-		
-		tmp = self.mesh.periodic[0]+self.mesh.periodic[1]
-		m_dict = ['^','o']
-		c_dict = ['C0','C2']
-		fig,ax = plt.subplots(1,figsize=(5,5))
-		for dof in self.mesh.dofs.values():
-			m = m_dict[dof.h==self.h]
-			try:	
-				c = c_dict[self.Id[dof.ID] and dof.ID in tmp]
-				if self.Id[dof.ID] and dof.ID not in tmp:
-					c = 'C1'
-			except:
-				c = c_dict[dof.h==self.h]
-			plt.scatter(dof.x,dof.y,marker=m,color=c)
-
-		ax.xaxis.set_major_locator(MultipleLocator(2*self.h))
-		ax.xaxis.set_minor_locator(MultipleLocator(self.h))
-		
-		ax.yaxis.set_major_locator(MultipleLocator(2*self.h))
-		ax.yaxis.set_minor_locator(MultipleLocator(self.h))
-		
-		plt.plot([0,1,1,0,0],[0,0,1,1,0],'k:',linewidth=2)
-		
-		ax.xaxis.grid(True,'minor',linewidth=.5)
-		ax.yaxis.grid(True,'minor',linewidth=.5)
-		ax.xaxis.grid(True,'major',linewidth=1)
-		ax.yaxis.grid(True,'major',linewidth=1)
-		plt.xlim(-2*self.h,1+2*self.h)
-		plt.ylim(-2*self.h,1+2*self.h)
-		plt.show()
-
 	def vis_dof_sol(self,proj=False,err=False):
 		U = self.U_proj if proj else self.U_lap
 		fig = plt.figure(figsize=(10,6))
@@ -354,12 +290,14 @@ class Solver:
 		plt.subplot(121)
 		plt.scatter(x0,y0,marker='^',vmin=lo,vmax=hi,c=c0,cmap='jet')#,vmin=vmin,vmax=vmax)
 		plt.colorbar(location='left')
-		plt.xlim(-.5*self.h,.5+.5*self.h)
+		#plt.xlim(.5-.5*self.h,1+.5*self.h)
+		plt.xlim(-1.5*self.h,1+1.5*self.h)
 		plt.ylim(-1.5*self.h,1+1.5*self.h)
 		plt.subplot(122)
 		plt.scatter(x1,y1,marker='o',vmin=lo,vmax=hi,c=c1,cmap='jet')#,vmin=vmin,vmax=vmax)
 		plt.colorbar(location='right')
-		plt.xlim(.5-.5*self.h,1+.5*self.h)
+		#plt.xlim(.5-.5*self.h,1+.5*self.h)
+		plt.xlim(-1.5*self.h,1+1.5*self.h)
 		plt.ylim(-1.5*self.h,1+1.5*self.h)
 		plt.tight_layout()
 		plt.show()

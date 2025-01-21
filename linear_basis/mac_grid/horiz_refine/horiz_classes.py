@@ -38,7 +38,7 @@ class HorizontalRefineMesh(Mesh):
 					self.periodic[0].append(dof_id)
 				
 				if (x==.5 or x==0):# and (0 < y):
-					self.interface[0][x==0].append(dof_id)
+					self.interface[0][x==.5].append(dof_id)
 
 				dof_id += 1
 
@@ -70,7 +70,7 @@ class HorizontalRefineMesh(Mesh):
 				if y < H or y > 1.-H:
 					self.periodic[1].append(dof_id)
 				if (x == 0.5 or x==1.):# and (0 < y):
-					self.interface[1][x==1].append(dof_id)
+					self.interface[1][x==.5].append(dof_id)
 
 				dof_id += 1
 

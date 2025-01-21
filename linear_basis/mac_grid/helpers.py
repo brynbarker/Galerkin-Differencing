@@ -32,11 +32,11 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 		h_ghosts = [[],[]]
 		v_ghosts = fine_ghosts
 	if gridtype == 'corner':
-		h_ghosts = fine_ghosts[0]
-		v_ghosts = fine_ghosts[1]
+		h_ghosts = [fine_ghosts[0],fine_ghosts[1]]
+		v_ghosts = [fine_ghosts[2],fine_ghosts[3]]
 
-	#fig = plt.figure(figsize=(15,10))
-	fig = plt.figure()
+	#fig = plt.figure()
+	fig = plt.figure(figsize=(20,20))
 	h = dofs[0].h
 
 	flags = {'C0':True,'C1':True,'C2':True,
@@ -44,7 +44,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	labels = {'C0':'1','C1':'1/4','C2':'1/2',
               'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
 
-	for i,scale in enumerate([-1,1]):
+	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
 			dof_inds = np.nonzero(C[ind])[0]
 
@@ -52,20 +52,19 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 			for c_ind in dof_inds:
 				c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
 				if f_x==c_x or f_x-c_x==1:
-					tmp_x = i/10+scale*.1
+					tmp_x = 1-i/2+scale*.2
 				else:
-					print('ok')
-					tmp_x = i/10+scale*(.1+abs(f_x-c_x))
+					#print('ok x=.5',f_x,c_x)
+					tmp_x = 1-i/2+scale*.2*(1+abs(f_x-c_x))
 				if dofs[ind].h != dofs[c_ind].h:
 					c = c_map(C[ind,c_ind])
 					if flags[c]:
-						plt.plot([i/10,tmp_x],[f_y,c_y],c=c,label=labels[c],lw=1)
+						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,label=labels[c],lw=1)
 						flags[c] = False
 					else:
-						plt.plot([i/10,tmp_x],[f_y,c_y],c=c,lw=1)
-					plt.scatter([i/10,tmp_x],[f_y,c_y],c='k')
+						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,lw=1)
+					plt.scatter([1-i/2,tmp_x],[f_y,c_y],c='k')
 		
-
 	for i,scale in enumerate([-1,1]):
 		for ind in v_ghosts[i]:
 			dof_inds = np.nonzero(C[ind])[0]
@@ -74,19 +73,21 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 			for c_ind in dof_inds:
 				c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
 				if f_y==c_y or f_y-c_y==1:
-					tmp_y = i/5+scale*.2
+					tmp_y = .5+i/2+scale*.2
+					xsft = 0
 				else:
-					print('ok',f_y,c_y)
-					tmp_y = i/5+scale*(.1+abs(f_y-c_y))
+					#print('ok y=.5',f_y,c_y)
+					tmp_y = c_y#1-i/2+scale*.2*(1+abs(f_y-c_y))
+					xsft = -.1
 		
 				if dofs[ind].h != dofs[c_ind].h:
 					c = c_map(C[ind,c_ind])
 					if flags[c]:
-						plt.plot([f_x,c_x],[i/5,tmp_y],c=c,label=labels[c],lw=1)
+						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,label=labels[c],lw=1)
 						flags[c] = False
 					else:
-						plt.plot([f_x,c_x],[i/5,tmp_y],c=c,lw=1)
-					plt.scatter([f_x,c_x],[i/5,tmp_y],c='k')
+						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,lw=1)
+					plt.scatter([f_x,c_x+xsft],[.5+i/2,tmp_y],c='k')
 
 	plt.legend(fontsize=10)
 	return fig

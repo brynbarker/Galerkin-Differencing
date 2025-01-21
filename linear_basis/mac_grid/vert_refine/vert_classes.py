@@ -40,7 +40,7 @@ class VerticalRefineMesh(Mesh):
 				if x < H or x > 1.-H:
 					self.periodic[0].append(dof_id)
 				if (y > 0.5 or y<0):# and (0 <= x < 1):
-					self.interface[0][y<0].append(dof_id)
+					self.interface[0][y>0].append(dof_id)
 
 				dof_id += 1
 
@@ -72,7 +72,7 @@ class VerticalRefineMesh(Mesh):
 				if x < H or x > 1.-H:
 					self.periodic[1].append(dof_id)
 				if (y < 0.5+H or y>1-H):# and (0 <= x < 1):
-					self.interface[1][y>1-H].append(dof_id)
+					self.interface[1][y<1-H].append(dof_id)
 
 				dof_id += 1
 
@@ -102,7 +102,7 @@ class VerticalRefineSolver(Solver):
 		for level in range(2):
 			# lower case are ghosts, upper case are true dofs
 			B0,t0 = np.array(self.mesh.periodic[level]).reshape((-1,2)).T
-			ghost_list = np.array(t0)#np.hstack((b0,t1))
+			ghost_list = np.array(t0)
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
 			if level == 0:
