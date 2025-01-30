@@ -209,7 +209,7 @@ class Solver:
 		fig = vis_periodic(self.C_full,self.mesh.dofs,gridtype)
 		return fig
 
-	def vis_mesh(self,corner=False):
+	def vis_mesh(self,corner=False,retfig=False):
 		fig,ax = plt.subplots(1,figsize=(7,7))
 		mk = ['^','o']
 		for dof in self.mesh.dofs.values():
@@ -259,8 +259,9 @@ class Solver:
 		plt.xticks([0,.5,1])
 		plt.yticks([0,.5,1])
 		plt.legend()
-		plt.show()
-		return
+		if retfig: return fig
+		#plt.show()
+		#return
 
 	def vis_dof_sol(self,proj=False,err=False):
 		U = self.U_proj if proj else self.U_lap

@@ -105,14 +105,13 @@ class VerticalRefineSolver(Solver):
 			ghost_list = np.array(t0)
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
-			if level == 0:
-				self.C_full[:,B0[-1]] += self.C_full[:,t0[-1]]
-				self.C_full[:,B0[0]] += self.C_full[:,t0[0]]
+			for ind in [0,-1]:
+				if level==0:
+					self.C_full[:,B0[ind]] += self.C_full[:,t0[ind]]
+				if level == 1:
+					self.C_full[t0[ind],:] = self.C_full[B0[ind],:]
 			self.Id[ghost_list] = 1.
 			self.C_full[t0,B0] = 1.
-			if level == 1:
-				self.C_full[t0[0],:] = self.C_full[B0[0],:]
-				self.C_full[t0[-1],:] = self.C_full[B0[-1],:]
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
 		for dof_id in self.mesh.boundaries:

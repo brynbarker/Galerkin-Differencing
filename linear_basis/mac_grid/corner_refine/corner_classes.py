@@ -105,7 +105,7 @@ class CornerRefinementMesh(Mesh):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (x<.5) and (y<1.):
+				if (x<.5) and (y<1.-H):
 					strt = dof_id#-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -173,8 +173,7 @@ class CornerRefineSolver(Solver):
 		q3 = self.mesh.interface[3]
 
 		# clear
-		rowlen = int(len(q0[2])/2)
-		ghosts = q0[2][:rowlen]+q1[0]+q1[1]+q2[2]+q2[3][rowlen:]+q3[0]+q3[1]+q3[2]+q3[3]
+		ghosts = q1[0]+q1[1]+q2[2]+q2[3]+q3[0]+q3[1]+q3[2]+q3[3]
 		for g in ghosts:
 			self.Id[g] = 1
 			self.C_full[g] *= 0 
@@ -202,31 +201,30 @@ class CornerRefineSolver(Solver):
 
 		# same level vertically 
 		self.C_full[q2[2],q0[3]] = 1
-		self.C_full[q2[3][rowlen:],q0[2][rowlen:]] = 1
-		self.C_full[q0[2][:rowlen],q2[3][:rowlen]] = 1
+		self.C_full[q2[3],q0[2]] = 1
 
+		# corners
 		for i in range(2):
 			self.C_full[q1[i][0],q0[1-i][1]] = 1/4
-			self.C_full[q1[i][0],q2[1-i][-2]] = 3/4
+			self.C_full[q1[i][0],q0[1-i][0]] = 3/4
 
 			self.C_full[q1[i][-1],q0[1-i][-2]] = 1/4
 			self.C_full[q1[i][-1],q0[1-i][-1]] = 3/4
 
-		#for i in range(2):
-		#	self.C_full[:,q2[i][-2]] += self.C_full[:,q0[i][-2]]
-
+		# distributing constraints
 		for i in range(2):
 			self.C_full[:,q0[i][-1]] += self.C_full[:,q2[i][0]]
+			self.C_full[:,q0[i][0]] += self.C_full[:,q2[i][-2]]
 
 		for i in range(2):
 			self.C_full[:,q0[i][-1]] += 3/4*self.C_full[:,q1[1-i][-1]]
 			self.C_full[:,q0[i][-2]] += 1/4*self.C_full[:,q1[1-i][-1]]
 
 			self.C_full[:,q0[i][1]] += 1/4*self.C_full[:,q1[1-i][0]]
-			self.C_full[:,q2[i][-2]] += 3/4*self.C_full[:,q1[1-i][0]]
+			self.C_full[:,q0[i][0]] += 3/4*self.C_full[:,q1[1-i][0]]
 
 		self.internal_overlap = q1[0][1:-1]+q2[2]
-		self.mesh.periodic_ghost = [q0[2][:rowlen]+q1[1][1:-1]+q2[3][rowlen:],[]]
+		self.mesh.periodic_ghost = [q1[1][1:-1]+q2[3],[]]
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
 		# dirichlet
@@ -243,8 +241,9 @@ class CornerRefineSolver(Solver):
 		fig = vis_constraints(self.C_full,self.mesh.dofs,self.mesh.interface[3],'corner')
 		if retfig: return fig
 	
-	def vis_mesh(self):
-		super().vis_mesh(True)
+	def vis_mesh(self,retfig=True):
+		fig = super().vis_mesh(corner=True,retfig=True)
+		if retfig: return fig
 
 	def vis_periodic(self,retfig=False):
 		fig = super().vis_periodic('corner')

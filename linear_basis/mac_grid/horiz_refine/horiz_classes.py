@@ -24,7 +24,7 @@ class HorizontalRefineMesh(Mesh):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (y<1.):
+				if (0<=x<.5) and (y<1-H):
 					strt = dof_id#-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -59,7 +59,7 @@ class HorizontalRefineMesh(Mesh):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (y<1.):
+				if (0.5<=x<1.) and (y<1-H):
 					strt = dof_id#-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -67,7 +67,7 @@ class HorizontalRefineMesh(Mesh):
 					self.elements.append(element)
 					e_id += 1
 
-				if y < H or y > 1.-H:
+				if y < H or y > 1-H:
 					self.periodic[1].append(dof_id)
 				if (x == 0.5 or x==1.):# and (0 < y):
 					self.interface[1][x==.5].append(dof_id)
@@ -99,26 +99,25 @@ class HorizontalRefineSolver(Solver):
 			self.C_full[f_inter[j][::2],c_inter[j][1:]] = 1/4
 
 		for level in range(2):
-			b0,B1,T0,t1 = np.array(self.mesh.periodic[level]).reshape((4,-1))
-			ghost_list = np.hstack((b0,t1))
+			# lower case are ghosts, upper case are true dofs
+			B0,B1,t0,t1 = np.array(self.mesh.periodic[level]).reshape((4,-1))
+			ghost_list = np.hstack((t0,t1))
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
-			if level == 0:
-				self.C_full[:,B1[-1]] += self.C_full[:,t1[-1]]
-				self.C_full[:,B1[0]] += self.C_full[:,t1[0]]
-				self.C_full[:,T0[-1]] += self.C_full[:,b0[-1]]
-				self.C_full[:,T0[0]] += self.C_full[:,b0[0]]
+			Ds,ds = [B0,B1],[t0,t1]
+			for (D,d) in zip(Ds,ds):
+				for ind in [0,-1]:
+					if level==0:
+						self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+					if level == 1:
+						self.C_full[d[ind],:] = self.C_full[D[ind],:]
+				self.C_full[d,D] = 1.
 			self.Id[ghost_list] = 1.
-			self.C_full[b0,T0] = 1.
-			self.C_full[t1,B1] = 1.
-			if level == 1:
-				self.C_full[b0[0],:] = self.C_full[T0[0],:]
-				self.C_full[b0[-1],:] = self.C_full[T0[-1],:]
-				self.C_full[t1[0],:] = self.C_full[B1[0],:]
-				self.C_full[t1[-1],:] = self.C_full[B1[-1],:]
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
-		for dof_id in self.mesh.boundaries:
+		per = self.mesh.periodic[0]+self.mesh.periodic[1]
+		new_bndry = self.mesh.boundaries#+per# + c_inter[0] + f_inter[0]+per
+		for dof_id in new_bndry:#self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y

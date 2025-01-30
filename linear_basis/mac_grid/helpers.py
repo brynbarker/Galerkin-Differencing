@@ -56,14 +56,17 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 				else:
 					#print('ok x=.5',f_x,c_x)
 					tmp_x = 1-i/2+scale*.2*(1+abs(f_x-c_x))
+					pass
 				if dofs[ind].h != dofs[c_ind].h:
 					c = c_map(C[ind,c_ind])
+					#if abs(f_y-c_y)>5*h: c_y = 1-c_y
 					if flags[c]:
 						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,label=labels[c],lw=1)
 						flags[c] = False
 					else:
 						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,lw=1)
-					plt.scatter([1-i/2,tmp_x],[f_y,c_y],c='k')
+					plt.plot([1-i/2],[f_y],c='k',ls='',marker='o')
+					plt.plot([tmp_x],[c_y],c='k',ls='',marker='^')
 		
 	for i,scale in enumerate([-1,1]):
 		for ind in v_ghosts[i]:
@@ -82,14 +85,16 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 		
 				if dofs[ind].h != dofs[c_ind].h:
 					c = c_map(C[ind,c_ind])
+					#if abs(f_x-c_x)>5*h: c_x = 1-c_x
 					if flags[c]:
 						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,label=labels[c],lw=1)
 						flags[c] = False
 					else:
 						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,lw=1)
-					plt.scatter([f_x,c_x+xsft],[.5+i/2,tmp_y],c='k')
+					plt.plot([f_x],[.5+i/2],c='k',ls='',marker='o')
+					plt.plot([c_x+xsft],[tmp_y],c='k',ls='',marker='^')
 
-	plt.legend(fontsize=10)
+	plt.legend(fontsize=20)
 	return fig
 	#plt.show()
 
@@ -154,8 +159,6 @@ def animate_2d(data,size,figsize=(10,10),yesdot=True):
 	ani = FuncAnimation(fig, update, frames=len(data), interval=interval)
 	plt.close()
 	return HTML(ani.to_html5_video())
-
-	
 
 #integrators
 
