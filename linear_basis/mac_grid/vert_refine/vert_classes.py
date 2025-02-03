@@ -8,6 +8,7 @@ from linear_basis.mac_grid.helpers import vis_constraints
 
 class VerticalRefineMesh(Mesh):
 	def __init__(self,N):
+		self.interface_f_dofs = [[],[]]
 		super().__init__(N)
 
 	def _make_coarse(self):
@@ -21,9 +22,6 @@ class VerticalRefineMesh(Mesh):
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
-			if (i==0) or (i==ylen-1):
-				y = y - y/abs(y)*H/4
-			interface_element = (i==0) or (i==ylen-2)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
@@ -33,13 +31,12 @@ class VerticalRefineMesh(Mesh):
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
 					e_id += 1
-					if interface_element: element.set_interface()
 
 				if y==H/2:
 					self.boundaries.append(dof_id)
 				if x < H or x > 1.-H:
 					self.periodic[0].append(dof_id)
-				if (y > 0.5 or y<0):# and (0 <= x < 1):
+				if (y > 0.5 or y<0):
 					self.interface[0][y>0].append(dof_id)
 
 				dof_id += 1
@@ -60,6 +57,8 @@ class VerticalRefineMesh(Mesh):
 		for i,y in enumerate(ydom):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
+				interface_element = (i==0 or i==ylen-2)
+				side = (i==0)
 
 				if (y<1.-H) and (x<1.):
 					strt = dof_id#-xlen
@@ -67,12 +66,16 @@ class VerticalRefineMesh(Mesh):
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 
 				if x < H or x > 1.-H:
 					self.periodic[1].append(dof_id)
 				if (y < 0.5+H or y>1-H):# and (0 <= x < 1):
 					self.interface[1][y<1-H].append(dof_id)
+				if (i==1 or i==ylen-2):
+					self.interface_f_dofs[i==1].append(dof_id)
+ 
 
 				dof_id += 1
 
@@ -88,15 +91,18 @@ class VerticalRefineSolver(Solver):
 
 		c_inter = self.mesh.interface[0]
 		f_inter = self.mesh.interface[1]
+		f_dofs = self.mesh.interface_f_dofs
 		for j in range(2):
 			self.Id[f_inter[j]] = 1
 			self.C_full[f_inter[j]] *= 0
 
 		for j in range(2):
-			self.C_full[f_inter[j][::2],c_inter[j]] = 1
+			self.C_full[f_inter[j][::2],c_inter[j]] = 2
+			self.C_full[f_inter[j][::2],f_dofs[j][::2]] = -1
 
-			self.C_full[f_inter[j][1::2],c_inter[j][:-1]] = 1/2
-			self.C_full[f_inter[j][1::2],c_inter[j][1:]] = 1/2
+			self.C_full[f_inter[j][1::2],c_inter[j][:-1]] = 1
+			self.C_full[f_inter[j][1::2],c_inter[j][1:]] = 1
+			self.C_full[f_inter[j][1::2],f_dofs[j][1::2]] = -1
 
 		# periodic
 		for level in range(2):
@@ -136,7 +142,7 @@ class VerticalRefineSolver(Solver):
 		
 		x -= (x==1)*1e-14
 		y -= (y==1)*1e-14
-		fine = True if y >= 0.5+self.h/2 else False
+		fine = True if y >= 0.5+self.h else False
 
 		if fine:
 			y_ind = int((y-.5)/self.h-1/2)

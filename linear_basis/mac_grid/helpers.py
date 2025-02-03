@@ -174,25 +174,22 @@ def gauss(f,a,b,c,d,n):
 		outer += w[j]*inner
 	return outer*xscale*yscale
 
-def local_stiffness(h,qpn=5,half=-1,I=False):
+def local_stiffness(h,qpn=5,y0=0,y1=1):
 	K = np.zeros((4,4))
 	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
-	y0 = h/2*(half>0)
-	y1 = h-h/2*(half==0)
-
-	if I:
-		y0,y1 = 0, 3/4*h
+	y0 *= h
+	y1 *= h
 
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y: grad_phi1_ref(x,y,h,test_ind,I)
+		grad_phi_test = lambda x,y: grad_phi1_ref(x,y,h,test_ind)#,I)
 
 		for trial_id in range(test_id,4):
 
 			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y: grad_phi1_ref(x,y,h,trial_ind,I)
+			grad_phi_trial = lambda x,y: grad_phi1_ref(x,y,h,trial_ind)#,I)
 
 			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
@@ -201,25 +198,22 @@ def local_stiffness(h,qpn=5,half=-1,I=False):
 			K[trial_id,test_id] += val * (test_id != trial_id)
 	return K
 
-def local_mass(h,qpn=5,half=-1,I=False):
+def local_mass(h,qpn=5,y0=0,y1=1):
 	M = np.zeros((4,4))
 	id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
 
-	y0 = h/2*(half>0)
-	y1 = h-h/2*(half==0)
-        
-	if I:
-		y0,y1 = 0, 3/4*h
+	y0 *= h
+	y1 *= h
 
 	for test_id in range(4):
 
 		test_ind = id_to_ind[test_id]
-		phi_test = lambda x,y: phi1_2d_ref(x,y,h,test_ind,I)
+		phi_test = lambda x,y: phi1_2d_ref(x,y,h,test_ind)#,I)
 
 		for trial_id in range(test_id,4):
 
 			trial_ind = id_to_ind[trial_id]
-			phi_trial = lambda x,y: phi1_2d_ref(x,y,h,trial_ind,I)
+			phi_trial = lambda x,y: phi1_2d_ref(x,y,h,trial_ind)#,I)
 
 			func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
