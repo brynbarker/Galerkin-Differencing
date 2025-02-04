@@ -7,6 +7,7 @@ from linear_basis.mac_grid.helpers import vis_constraints
 
 class CornerRefinementMesh(Mesh):
 	def __init__(self,N):
+		self.interface_f_dofs = [[],[]]
 		super().__init__(N)
 
 	def _make_coarse(self):
@@ -27,7 +28,6 @@ class CornerRefinementMesh(Mesh):
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
-			interface_element = (i == ylen-2)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
@@ -40,8 +40,6 @@ class CornerRefinementMesh(Mesh):
 
 				if x==H:
 					self.boundaries.append(dof_id)
-				#if y==H/2:
-				#	self.boundaries.append(dof_id)
 				if (x == 0.5 or x==0):
 					self.interface[0][x>0].append(dof_id)
 				if (y > 0.5 or y<H):
@@ -64,9 +62,6 @@ class CornerRefinementMesh(Mesh):
 
 		dof_id,e_id = self.dof_count, self.el_count
 		for i,y in enumerate(ydom):
-			if (i==0) or (i==ylen-1):
-				y = y - y/abs(y)*H/4
-			interface_element = (i==0) or (i==ylen-2)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
@@ -76,12 +71,9 @@ class CornerRefinementMesh(Mesh):
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
 					e_id += 1
-					if interface_element: element.set_interface()
 
 				if (x == 0.5 or x==1):
 					self.interface[1][x==1].append(dof_id)
-				#if y==H/2:
-				#	self.boundaries.append(dof_id)
 				if (y > 0.5 or y <0):
 					self.interface[1][2+(y>0)].append(dof_id)
 
@@ -136,6 +128,8 @@ class CornerRefinementMesh(Mesh):
 
 		dof_id,e_id = self.dof_count, self.el_count
 		for i,y in enumerate(ydom):
+			interface_element = (i==0) or (i==ylen-2)
+			side = (i==0)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
@@ -145,12 +139,15 @@ class CornerRefinementMesh(Mesh):
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 
-				if (y<.5+H or y>1-H):
-					self.interface[3][2+(y>1-H)].append(dof_id)
-				elif (x==.5) or (x==1):
+				if (x==.5) or (x==1):
 					self.interface[3][x==1].append(dof_id)
+				elif (y<.5+H or y>1-H):
+					self.interface[3][2+(y>1-H)].append(dof_id)
+				elif (i==1 or i==ylen-2):
+					self.interface_f_dofs[i==1].append(dof_id)
 
 				dof_id += 1
 
@@ -172,6 +169,8 @@ class CornerRefineSolver(Solver):
 		q2 = self.mesh.interface[2]
 		q3 = self.mesh.interface[3]
 
+		f_dofs = self.mesh.interface_f_dofs
+
 		# clear
 		ghosts = q1[0]+q1[1]+q2[2]+q2[3]+q3[0]+q3[1]+q3[2]+q3[3]
 		for g in ghosts:
@@ -181,23 +180,25 @@ class CornerRefineSolver(Solver):
 
 		# horizontal refinement (x = .5)
 		for i in range(2):
-			self.C_full[q3[1-i][1::2],q2[i][:-2]] = 1/4
-			self.C_full[q3[1-i][1::2],q2[i][1:-1]] = 3/4
+			self.C_full[q3[1-i][2:-1:2],q2[i][:-2]] = 1/4
+			self.C_full[q3[1-i][:-1:2],q2[i][:-1]] = 3/4
 
-			self.C_full[q3[1-i][::2],q2[i][1:-1]] = 1/4
-			self.C_full[q3[1-i][::2],q2[i][:-2]] = 3/4
+			self.C_full[q3[1-i][1::2],q2[i][1:]] = 1/4
+			self.C_full[q3[1-i][1::2],q2[i][:-1]] = 3/4
 
 		# vertical refinement (y = .5)
 		for i in range(2):
-			self.C_full[q3[3-i][::2],q1[2+i]] = 1
+			self.C_full[q3[3-i][1:-1:2],q1[2+i][1:-1]] = 2
 
-			self.C_full[q3[3-i][1::2],q1[2+i][1:]] = 1/2
-			self.C_full[q3[3-i][1::2],q1[2+i][:-1]] = 1/2
+			self.C_full[q3[3-i][::2],q1[2+i][1:]] = 1
+			self.C_full[q3[3-i][::2],q1[2+i][:-1]] = 1
+
+			self.C_full[q3[3-i],f_dofs[i]] = -1
 
 
 		# same level horizontally
 		for i in range(2):
-			self.C_full[q1[1-i][1:-1],q0[i][1:-1]] = 1
+			self.C_full[q1[1-i][:],q0[i][:]] = 1
 
 		# same level vertically 
 		self.C_full[q2[2],q0[3]] = 1
@@ -205,11 +206,13 @@ class CornerRefineSolver(Solver):
 
 		# corners
 		for i in range(2):
-			self.C_full[q1[i][0],q0[1-i][1]] = 1/4
-			self.C_full[q1[i][0],q0[1-i][0]] = 3/4
+			self.C_full[q3[1-i][0],q0[i][-2]] = 1/4
+			self.C_full[q3[1-i][-1],q0[i][1]] = 1/4
+			#self.C_full[q1[i][0],q0[1-i][1]] = 1/4
+			#self.C_full[q1[i][0],q0[1-i][0]] = 3/4
 
-			self.C_full[q1[i][-1],q0[1-i][-2]] = 1/4
-			self.C_full[q1[i][-1],q0[1-i][-1]] = 3/4
+			#self.C_full[q1[i][-1],q0[1-i][-2]] = 1/4
+			#self.C_full[q1[i][-1],q0[1-i][-1]] = 3/4
 
 		# distributing constraints
 		for i in range(2):
@@ -217,11 +220,8 @@ class CornerRefineSolver(Solver):
 			self.C_full[:,q0[i][0]] += self.C_full[:,q2[i][-2]]
 
 		for i in range(2):
-			self.C_full[:,q0[i][-1]] += 3/4*self.C_full[:,q1[1-i][-1]]
-			self.C_full[:,q0[i][-2]] += 1/4*self.C_full[:,q1[1-i][-1]]
-
-			self.C_full[:,q0[i][1]] += 1/4*self.C_full[:,q1[1-i][0]]
-			self.C_full[:,q0[i][0]] += 3/4*self.C_full[:,q1[1-i][0]]
+			self.C_full[:,q0[i][-1]] += self.C_full[:,q1[1-i][-1]]
+			self.C_full[:,q0[i][0]] += self.C_full[:,q1[1-i][0]]
 
 		self.internal_overlap = q1[0][1:-1]+q2[2]
 		self.mesh.periodic_ghost = [q1[1][1:-1]+q2[3],[]]
@@ -261,7 +261,7 @@ class CornerRefineSolver(Solver):
 			x_ind = int(x/2/self.h)
 			y_ind = int((y-.5)/2/self.h-1/2)
 			e_ind = self.mesh.n_els[1]+y_ind*self.N/2+x_ind
-		elif (y<=.5+self.h/2): #q1
+		elif (y<=.5+self.h): #q1
 			x_ind = int((x-.5)/2/self.h)
 			y_ind = int(y/2/self.h+1/2)
 			e_ind = self.mesh.n_els[0]+y_ind*self.N/2+x_ind
