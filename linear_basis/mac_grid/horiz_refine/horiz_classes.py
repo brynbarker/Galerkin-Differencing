@@ -21,14 +21,17 @@ class HorizontalRefineMesh(Mesh):
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
+			interface_element = (i==0 or i==ylen-2)
+			side = i==0
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (y<1-H):
-					strt = dof_id#-xlen
+				if (0<=x<.5) and (y<1):
+					strt = dof_id
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 				
 				if x==H:
@@ -56,15 +59,19 @@ class HorizontalRefineMesh(Mesh):
 
 		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
 		for i,y in enumerate(ydom):
+			interface_element = (i==0 or i==ylen-2)
+			side = i==0
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (y<1-H):
-					strt = dof_id#-xlen
+				if (0.5<=x<1.) and (y<1):
+					strt = dof_id
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
+					
 					e_id += 1
 
 				if y < H or y > 1-H:
@@ -100,11 +107,11 @@ class HorizontalRefineSolver(Solver):
 
 		for level in range(2):
 			# lower case are ghosts, upper case are true dofs
-			B0,B1,t0,t1 = np.array(self.mesh.periodic[level]).reshape((4,-1))
-			ghost_list = np.hstack((t0,t1))
+			b0,B1,T0,t1 = np.array(self.mesh.periodic[level]).reshape((4,-1))
+			ghost_list = np.hstack((b0,t1))
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
-			Ds,ds = [B0,B1],[t0,t1]
+			Ds,ds = [T0,B1],[b0,t1]
 			for (D,d) in zip(Ds,ds):
 				for ind in [0,-1]:
 					if level==0:
@@ -116,8 +123,7 @@ class HorizontalRefineSolver(Solver):
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
 		per = self.mesh.periodic[0]+self.mesh.periodic[1]
-		new_bndry = self.mesh.boundaries#+per# + c_inter[0] + f_inter[0]+per
-		for dof_id in new_bndry:#self.mesh.boundaries:
+		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y

@@ -22,22 +22,25 @@ class VerticalRefineMesh(Mesh):
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
+			interface_element = (i==0 or i==ylen-2)
+			side = i==0
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
 				if (y<.5) and (x<1.):
-					strt = dof_id#-xlen
+					strt = dof_id
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 
-				if y==H/2:
+				if y==3*H/2:
 					self.boundaries.append(dof_id)
 				if x < H or x > 1.-H:
 					self.periodic[0].append(dof_id)
-				if (y > 0.5 or y<0):
-					self.interface[0][y>0].append(dof_id)
+				if (y > 0.5-H or y<H):
+					self.interface[0][y>H].append(dof_id)
 
 				dof_id += 1
 
@@ -49,19 +52,19 @@ class VerticalRefineMesh(Mesh):
 		self.periodic[1] = []
 		H = self.h
 		xdom = np.linspace(0,1,2*self.N+1)
-		ydom = np.linspace(0.5+H/2,1.-H/2,self.N)
+		ydom = np.linspace(0.5-H/2,1.+H/2,self.N+2)
 
 		xlen,ylen = len(xdom),len(ydom)
 
 		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
 		for i,y in enumerate(ydom):
+			interface_element = (i==0 or i==ylen-2)
+			side = (i==0)
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
-				interface_element = (i==0 or i==ylen-2)
-				side = (i==0)
 
-				if (y<1.-H) and (x<1.):
-					strt = dof_id#-xlen
+				if (y<1.) and (x<1.):
+					strt = dof_id
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					element.set_fine()
@@ -71,8 +74,8 @@ class VerticalRefineMesh(Mesh):
 
 				if x < H or x > 1.-H:
 					self.periodic[1].append(dof_id)
-				if (y < 0.5+H or y>1-H):# and (0 <= x < 1):
-					self.interface[1][y<1-H].append(dof_id)
+				if (y < 0.5 or y>1):
+					self.interface[1][y<1].append(dof_id)
 				if (i==1 or i==ylen-2):
 					self.interface_f_dofs[i==1].append(dof_id)
  
@@ -97,12 +100,16 @@ class VerticalRefineSolver(Solver):
 			self.C_full[f_inter[j]] *= 0
 
 		for j in range(2):
-			self.C_full[f_inter[j][::2],c_inter[j]] = 2
-			self.C_full[f_inter[j][::2],f_dofs[j][::2]] = -1
+			c_a, c_b = np.array(c_inter[j]).reshape((2,-1))
+			self.C_full[f_inter[j][::2],c_a] = 1
+			self.C_full[f_inter[j][::2],c_b] = 1
 
-			self.C_full[f_inter[j][1::2],c_inter[j][:-1]] = 1
-			self.C_full[f_inter[j][1::2],c_inter[j][1:]] = 1
-			self.C_full[f_inter[j][1::2],f_dofs[j][1::2]] = -1
+			self.C_full[f_inter[j][1::2],c_a[:-1]] = 1/2
+			self.C_full[f_inter[j][1::2],c_b[:-1]] = 1/2
+			self.C_full[f_inter[j][1::2],c_a[1:]] = 1/2
+			self.C_full[f_inter[j][1::2],c_b[1:]] = 1/2
+
+			self.C_full[f_inter[j],f_dofs[j]] = -1
 
 		# periodic
 		for level in range(2):
@@ -111,11 +118,9 @@ class VerticalRefineSolver(Solver):
 			ghost_list = np.array(t0)
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
-			for ind in [0,-1]:
-				if level==0:
-					self.C_full[:,B0[ind]] += self.C_full[:,t0[ind]]
-				if level == 1:
-					self.C_full[t0[ind],:] = self.C_full[B0[ind],:]
+			for ind in [0,1,-2,-1]:
+				self.C_full[:,B0[ind]] += self.C_full[:,t0[ind]]
+				self.C_full[t0[ind],:] = self.C_full[B0[ind],:]
 			self.Id[ghost_list] = 1.
 			self.C_full[t0,B0] = 1.
 
@@ -142,10 +147,10 @@ class VerticalRefineSolver(Solver):
 		
 		x -= (x==1)*1e-14
 		y -= (y==1)*1e-14
-		fine = True if y >= 0.5+self.h else False
+		fine = True if y >= 0.5 else False
 
 		if fine:
-			y_ind = int((y-.5)/self.h-1/2)
+			y_ind = int((y-.5)/self.h+1/2)
 			x_ind = int(x/self.h)
 		else:
 			y_ind = int(y/2/self.h+1/2)

@@ -57,6 +57,7 @@ class Element:
 
 	def set_fine(self):
 		self.fine = True
+
 	def set_interface(self,which):
 		self.interface = True
 		self.side = which
@@ -134,7 +135,7 @@ class Solver:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			for test_id,dof in enumerate(e.dof_list):
 				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y: phi1_2d_ref(x,y,e.h,test_ind)#,e.interface)
+				phi_test = lambda x,y: phi1_2d_ref(x,y,e.h,test_ind)
 				func = lambda x,y: phi_test(x,y) * myfunc(x+e.x,y+e.y)
 				val = gauss(func,0,e.h,y0,y1,self.qpn)
 
@@ -179,7 +180,7 @@ class Solver:
 			scale = 1 if e.fine else 4
 			for test_id,dof in enumerate(e.dof_list):
 				if e.interface:
-					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]
+					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]*scale
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
 
@@ -360,7 +361,7 @@ class Solver:
 			val = 0
 			for local_id, dof in enumerate(e.dof_list):
 				local_ind = id_to_ind[local_id]
-				val += weights[dof.ID]*phi1_2d_eval(x,y,dof.h,dof.x,dof.y)#,e.interface)
+				val += weights[dof.ID]*phi1_2d_eval(x,y,dof.h,dof.x,dof.y)
 			
 			return val
 		return solution

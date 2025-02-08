@@ -44,59 +44,55 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	labels = {'C0':'1','C1':'1/4','C2':'1/2',
               'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
 
+	moved = []
+	shift = []
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
-			dof_inds = np.nonzero(C[ind])[0]
+			if C[ind,ind] != 1.:
+				dof_inds = np.nonzero(C[ind])[0]
 
-			f_x,f_y = dofs[ind].x,dofs[ind].y
-			for c_ind in dof_inds:
-				c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
-				if f_x==c_x or f_x-c_x==1:
-					tmp_x = 1-i/2+scale*.2
-				else:
-					#print('ok x=.5',f_x,c_x)
-					tmp_x = 1-i/2+scale*.2*(1+abs(f_x-c_x))
-					pass
-				if dofs[ind].h != dofs[c_ind].h:
-					c = c_map(C[ind,c_ind])
-					#if abs(f_y-c_y)>5*h: c_y = 1-c_y
-					if flags[c]:
-						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,label=labels[c],lw=1)
-						flags[c] = False
-					else:
-						plt.plot([1-i/2,tmp_x],[f_y,c_y],c=c,lw=1)
-					plt.plot([1-i/2],[f_y],c='k',ls='',marker='o')
-					plt.plot([tmp_x],[c_y],c='k',ls='',marker='^')
+				f_x,f_y = dofs[ind].x,dofs[ind].y
+				for c_ind in dof_inds:
+					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
+					if f_x - c_x > .5: c_x += 1
+					if f_y - c_y > .5: c_y += 1
+					if c_x - f_x > .5: c_x -= 1
+					if c_y - f_y > .5: c_y -= 1
+					if f_x==c_x:
+						c_x += scale*h/2
+					if dofs[ind].h != h:
+						c = c_map(C[ind,c_ind])
+						if flags[c]:
+							plt.plot([f_x,c_x],[f_y,c_y],c=c,label=labels[c],lw=1)
+							flags[c] = False
+						else:
+							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
+						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
+						plt.plot([c_x],[c_y],c='k',ls='',marker='^')
 		
 	for i,scale in enumerate([-1,1]):
 		for ind in v_ghosts[i]:
-			dof_inds = np.nonzero(C[ind])[0]
+			if C[ind,ind] != 1.:
+				dof_inds = np.nonzero(C[ind])[0]
 
-			f_x,f_y = dofs[ind].x,dofs[ind].y
-			for c_ind in dof_inds:
-				c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
-				if f_y==c_y or f_y-c_y==1:
-					tmp_y = .5+i/2+scale*.2
-					xsft = 0
-				else:
-					#print('ok y=.5',f_y,c_y)
-					tmp_y = c_y#1-i/2+scale*.2*(1+abs(f_y-c_y))
-					xsft = -.1
+				f_x,f_y = dofs[ind].x,dofs[ind].y
+				for c_ind in dof_inds:
+					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
+					if f_y - c_y > .5: c_y += 1
+					if f_x - c_x > .5: c_x += 1
 		
-				if dofs[ind].h != dofs[c_ind].h:
-					c = c_map(C[ind,c_ind])
-					#if abs(f_x-c_x)>5*h: c_x = 1-c_x
-					if flags[c]:
-						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,label=labels[c],lw=1)
-						flags[c] = False
-					else:
-						plt.plot([f_x,c_x+xsft],[.5+i/2,tmp_y],c=c,lw=1)
-					plt.plot([f_x],[.5+i/2],c='k',ls='',marker='o')
-					plt.plot([c_x+xsft],[tmp_y],c='k',ls='',marker='^')
+					if dofs[ind].h != h:
+						c = c_map(C[ind,c_ind])
+						if flags[c]:
+							plt.plot([f_x,c_x],[f_y,c_y],c=c,label=labels[c],lw=1)
+							flags[c] = False
+						else:
+							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
+						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
+						plt.plot([c_x],[c_y],c='k',ls='',marker='^')
 
 	plt.legend(fontsize=20)
 	return fig
-	#plt.show()
 
 def vis_periodic(C,dofs,gridtype):
 	h = dofs[0].h/2
