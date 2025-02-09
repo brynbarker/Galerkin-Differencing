@@ -59,7 +59,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					if c_x - f_x > .5: c_x -= 1
 					if c_y - f_y > .5: c_y -= 1
 					if f_x==c_x:
-						c_x += scale*h/2
+						c_x -= scale*h/2
 					if dofs[ind].h != h:
 						c = c_map(C[ind,c_ind])
 						if flags[c]:
