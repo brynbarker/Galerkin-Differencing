@@ -14,8 +14,7 @@ def phi3(x,h):
     else:
         return 0
 
-def phi3_interface(y,h_in):
-	h = 3/4*h_in
+def phi3_interface(y,h):
 	return phi3(y,h)
 
 def phi3_dx(x,h):
@@ -30,19 +29,18 @@ def phi3_dx(x,h):
     else:
         return 0
 
-def phi3_interface_dx(y,h_in):
-	h = 3/4*h_in
+def phi3_interface_dx(y,h):
 	return phi3_dx(y,h)
 
 def phi3_2d(x,y,h,I=False):
+    return phi3(x,h)*phi3(y,h)
     if I:
         return phi3(x,h)*phi3_interface(y,h)
-    return phi3(x,h)*phi3(y,h)
 
 def grad_phi3(x,y,h,I=False):
     phi_j = phi3(x,h)
     dphi_j_dx = phi3_dx(x,h)
-    if I:
+    if False:
         phi_i = phi3_interface(y,h)
         dphi_i_dy = phi3_interface_dx(y,h)
     else:
@@ -50,20 +48,20 @@ def grad_phi3(x,y,h,I=False):
         dphi_i_dy = phi3_dx(y,h)
     return np.array([phi_i*dphi_j_dx,phi_j*dphi_i_dy])
 
-def grad_phi3_eval(x_in,y_in,h,x0,y0,I=False):
+def grad_phi3_eval(x_in,y_in,h,x0,y0,I=False,y_offset=0):
     x,y = x_in-x0,y_in-y0
-    return grad_phi3(x,y,h,I)
+    return grad_phi3(x,y,h)
 
-def phi3_2d_eval(x_in,y_in,h,x0,y0,I=False):
+def phi3_2d_eval(x_in,y_in,h,x0,y0,I=False,y_offset=0):
     x,y = x_in-x0,y_in-y0
-    return phi3_2d(x,y,h,I)
+    return phi3_2d(x,y,h)
 
 def phi3_2d_ref(x_ref,y_ref,h,ind,I=False):
     i,j = ind
-    x,y = x_ref+h*(1-j),y_ref+h*(1-i)*(1-I*1/4)
-    return phi3_2d(x,y,h,I)
+    x,y = x_ref+h*(1-j),y_ref+h*(1-i)
+    return phi3_2d(x,y,h)
 
 def grad_phi3_ref(x_ref,y_ref,h,ind,I=False):
     i,j = ind
-    x,y = x_ref+h*(1-j),y_ref+h*(1-i)*(1-I*1/4)
-    return grad_phi3(x,y,h,I)
+    x,y = x_ref+h*(1-j),y_ref+h*(1-i)
+    return grad_phi3(x,y,h)

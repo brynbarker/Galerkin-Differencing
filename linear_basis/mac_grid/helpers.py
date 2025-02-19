@@ -158,6 +158,46 @@ def animate_2d(data,size,figsize=(10,10),yesdot=True):
 
 #integrators
 
+def get_phi_gauss(h,n):
+	[p,w] = np.polynomial.legendre.leggauss(n)
+	vals = {}
+	ind = 0
+	for y_shift in [0,-h]:
+		for x_shift in [0,-h]:
+			v = np.zeros((n,n))
+			for j in range(n):
+				for i in range(n):
+					v[j,i] = phi1_2d(h/2*p[j]+h/2+x_shift,h/2*p[i]+h/2+y_shift)
+			vals[ind] = v
+			ind += 1
+	return vals,p,w
+		
+
+def get_dphi_gauss(h,n):
+	[p,w] = np.polynomial.legendre.leggauss(n)
+	p = h/2*(p+1)
+	vals = {}
+	ind = 0
+	for y_shift in [0,-h]:
+		for x_shift in [0,-h]:
+			v = np.zeros((n,n))
+			for j in range(n):
+				for i in range(n):
+					v[j,i] = grad_phi1(p[j]+x_shift,p[i]+y_shift)
+			vals[ind] = v
+			ind += 1
+
+	return vals,p,w
+
+def fast_gauss(f,p,w,v,n):
+	outer = 0.
+	for j in range(n):
+		inner = 0.
+		for i in range(n):
+			inner += w[i]*f(p[j],p[i])*v[j,i]
+		outer += w[j]*inner
+	return outer*h*h/4
+
 def gauss(f,a,b,c,d,n):
 	xmid, ymid = (a+b)/2, (c+d)/2
 	xscale, yscale = (b-a)/2, (d-c)/2

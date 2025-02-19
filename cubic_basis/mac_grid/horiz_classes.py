@@ -22,14 +22,17 @@ class HorizontalRefineMesh(Mesh):
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
+			interface_element = (i==1 or i==ylen-3)
+			side = i==1
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (-H<y<1.-H):
+				if (0<=x<.5) and (-H<y<1.):
 					strt = dof_id-1-xlen
 					element = Element(e_id,j-1,i-1,x,y,H)
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 				
 				if x==H:
@@ -57,15 +60,18 @@ class HorizontalRefineMesh(Mesh):
 
 		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
 		for i,y in enumerate(ydom):
+			interface_element = (i==1 or i==ylen-3)
+			side = i==1
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (-H<y<1.-H):
+				if (0.5<=x<1.) and (-H<y<1.):
 					strt = dof_id-1-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
+					if interface_element: element.set_interface(side)
 					e_id += 1
 
 				if y < 2*H or y > 1.-2*H:
@@ -105,23 +111,25 @@ class HorizontalRefineSolver(Solver):
 			self.C_full[f_inter[j][2::2],c_inter[j][2:-1]] = v1
 			self.C_full[f_inter[j][2::2],c_inter[j][3:]] = v5
 
+		tmp = []
 		for level in range(2):
-			b0,B1,B2,B3,T0,t1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
-			ghost_list = np.hstack((b0,t1,t2,t3))
+			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
+			ghost_list = np.hstack((b0,b1,t2,t3))
+			tmp += list(ghost_list)
 			self.mesh.periodic_ghost.append(ghost_list)
-			self.C_full[ghost_list] *= 0.
-			self.Id[ghost_list] = 1.
-			Ds,ds = [T0,B1,B2,B3],[b0,t1,t2,t3]
-			for (D,d) in zip(Ds,ds):
-				self.C_full[d,D] = 1
-				for ind in [1,-2]:
-					if level == 0:
-						self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-					if level ==1:
-						self.C_full[d[ind],:] = self.C_full[D[ind],:]
+			#self.C_full[ghost_list] *= 0.
+			#self.Id[ghost_list] = 1.
+			#Ds,ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
+			#for (D,d) in zip(Ds,ds):
+			#	self.C_full[d,D] = 1
+			#	for ind in [1,-2]:
+			#		if level == 0:
+			#			self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+			#		if level ==1:
+			#			self.C_full[d[ind],:] = self.C_full[D[ind],:]
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
-		for dof_id in self.mesh.boundaries:
+		for dof_id in self.mesh.boundaries+tmp:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
@@ -149,10 +157,7 @@ class HorizontalRefineSolver(Solver):
 		el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
 		e = self.mesh.elements[int(el_ind)]
 		assert x >= min(e.plot[0]) and x <= max(e.plot[0])
-		try:
-			assert y >= min(e.plot[1]) and y <= max(e.plot[1])
-		except:
-			print(y, y/((2-fine)*self.h), y_ind,e.x, e.y, e.h,sep='\t')
+		assert y >= min(e.plot[1]) and y <= max(e.plot[1])
 		return e
 
 

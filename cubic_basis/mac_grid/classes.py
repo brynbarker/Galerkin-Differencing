@@ -33,6 +33,7 @@ class Element:
 		self.dof_list = []
 		self.fine = False
 		self.interface = False
+		self.side = None
 		self.dom = [x,x+h,y,y+h]
 		self.plot = [[x,x+h,x+h,x,x],
 					 [y,y,y+h,y+h,y]]
@@ -56,8 +57,18 @@ class Element:
 
 	def set_fine(self):
 		self.fine = True
-	def set_interface(self):
+	def set_interface(self,which):
 		self.interface = True
+		self.side = which
+ 
+		if which == 0:
+			self.dom[3] = self.y+self.h/2
+			for ind in [2,3]:
+				self.plot[1][ind] -= self.h/2
+		else:
+			self.dom[2] = self.y+self.h/2
+			for ind in [0,1,4]:
+				self.plot[1][ind] += self.h/2
 
 class Mesh:
 	def __init__(self,N):
@@ -120,11 +131,10 @@ class Solver:
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
 		for e in self.mesh.elements:
-			y0,y1 = 0,e.h
-			if e.interface: y1 *= 3/4
+			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			for test_id,dof in enumerate(e.dof_list):
 				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind,e.interface)
+				phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind)
 				func = lambda x,y: phi_test(x,y) * myfunc(x+e.x,y+e.y)
 				val = gauss(func,0,e.h,y0,y1,self.qpn)
 
@@ -142,12 +152,15 @@ class Solver:
 		
 		base_k = local_stiffness(self.h,qpn=self.qpn)
 	
-		interface_k = local_stiffness(self.h*2,qpn=self.qpn,I=True)
+		interface_k0 = local_stiffness(self.h,qpn=self.qpn,y1=.5)
+		interface_k1 = local_stiffness(self.h,qpn=self.qpn,y0=.5)
+		interface_k = [interface_k0,interface_k1]
+
 
 		for e in self.mesh.elements:
 			for test_id,dof in enumerate(e.dof_list):
 				if e.interface:
-					self.K[dof.ID,e.dof_ids] += interface_k[test_id]
+					self.K[dof.ID,e.dof_ids] += interface_k[e.side][test_id]
 				else:
 					self.K[dof.ID,e.dof_ids] += base_k[test_id]
 
@@ -159,18 +172,20 @@ class Solver:
 
 		base_m = local_mass(self.h,qpn=self.qpn)
 	
-		interface_m = local_mass(self.h*2,qpn=self.qpn,I=True)
+		interface_m0 = local_mass(self.h,qpn=self.qpn,y1=.5)
+		interface_m1 = local_mass(self.h,qpn=self.qpn,y0=.5)
+		interface_m = [interface_m0,interface_m1]
 
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 4
 			for test_id,dof in enumerate(e.dof_list):
 				if e.interface:
-					self.M[dof.ID,e.dof_ids] += interface_m[test_id]
+					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
 
 	def projection(self):
-		self.ffunc = self.ufunc
+		#self.ffunc = self.ufunc
 		self._build_mass()
 		self._build_force(proj=True)
 		LHS = self.C.T @ self.M @ self.C
@@ -254,8 +269,8 @@ class Solver:
 		ax.yaxis.grid(True,'minor',linewidth=.5)
 		ax.xaxis.grid(True,'major',linewidth=1)
 		ax.yaxis.grid(True,'major',linewidth=1)
-		plt.xlim(-2*self.h,1+2*self.h)
-		plt.ylim(-2*self.h,1+2*self.h)
+		plt.xlim(-4*self.h,1+4*self.h)
+		plt.ylim(-4*self.h,1+4*self.h)
 		plt.xticks([0,.5,1])
 		plt.yticks([0,.5,1])
 		plt.legend()
@@ -292,8 +307,8 @@ class Solver:
 		plt.scatter(x0,y0,marker='^',vmin=lo,vmax=hi,c=c0,cmap='jet')#,vmin=vmin,vmax=vmax)
 		plt.colorbar(location='left')
 		#plt.xlim(.5-.5*self.h,1+.5*self.h)
-		plt.xlim(-2.5*self.h,1+2.5*self.h)
-		plt.ylim(-2.5*self.h,1+2.5*self.h)
+		plt.xlim(-4.5*self.h,1+4.5*self.h)
+		plt.ylim(-4.5*self.h,1+4.5*self.h)
 		plt.subplot(122)
 		plt.scatter(x1,y1,marker='o',vmin=lo,vmax=hi,c=c1,cmap='jet')#,vmin=vmin,vmax=vmax)
 		plt.colorbar(location='right')
@@ -347,7 +362,7 @@ class Solver:
 			val = 0
 			for local_id, dof in enumerate(e.dof_list):
 				local_ind = id_to_ind[local_id]
-				val += weights[dof.ID]*phi3_2d_eval(x,y,dof.h,dof.x,dof.y,e.interface)
+				val += weights[dof.ID]*phi3_2d_eval(x,y,dof.h,dof.x,dof.y)
 			
 			return val
 		return solution

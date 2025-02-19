@@ -7,6 +7,7 @@ from cubic_basis.mac_grid.shape_functions import *
 
 #visualization helpers
 v1, v3, v5, v7 = phi3(1/4,1), phi3(3/4,1), phi3(5/4,1), phi3(7/4,1)
+v12, v32 = phi3(1/2,1), phi3(3/2,1)
 
 def c_map(v):
 	if v == v1:
@@ -17,10 +18,12 @@ def c_map(v):
 		return 'C2'
 	elif v == v7:
 		return 'C3'
-	elif v == 1/8:
+	elif v == v12:
 		return 'C4'
-	elif v == 3/8:
+	elif v == v32:
 		return 'C5'
+	elif v == 1:
+		return 'C6'
 	else:
 		print(v)
 		return 'k'
@@ -41,9 +44,10 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	h = dofs[0].h
 
 	flags = {'C0':True,'C1':True,'C2':True,
-			 'C3':True,'C4':True,'C5':True,'k':True}
+			 'C3':True,'C4':True,'C5':True,'C6':True,'k':True}
 	labels = {'C0':r'$\phi_3(h/4)$','C1':r'$\phi_3(3h/4)$','C2':r'$\phi_3(5h/4)$',
-              'C3':r'$\phi_3(7h/4)$','C4':'1/8','C5':'3/8','k':'other'}
+              'C3':r'$\phi_3(7h/4)$','C4':r'$\phi_3(h/2)$','C5':r'$\phi_3(3h/2)$',
+			  'C6':1,'k':'other'}
 
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
@@ -80,9 +84,9 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					tmp_y = .5+i/2+scale*.2
 					xsft = 0
 				else:
-					#print('ok y=.5',f_y,c_y)
+					print('ok y=.5',f_y,c_y)
 					tmp_y = c_y#1-i/2+scale*.2*(1+abs(f_y-c_y))
-					xsft = -.1
+					xsft = 0#-.1
 		
 				if dofs[ind].h != dofs[c_ind].h:
 					c = c_map(C[ind,c_ind])
@@ -175,25 +179,22 @@ def gauss(f,a,b,c,d,n):
 		outer += w[j]*inner
 	return outer*xscale*yscale
 
-def local_stiffness(h,qpn=5,I=False):
+def local_stiffness(h,qpn=5,y0=0,y1=1):
 	K = np.zeros((16,16))
 	id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
-	y0 = 0
-	y1 = h
-
-	if I:
-		y0,y1 = 0, 3/4*h
+	y0 *= h
+	y1 *= h 
 
 	for test_id in range(16):
 
 		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y: grad_phi3_ref(x,y,h,test_ind,I)
+		grad_phi_test = lambda x,y: grad_phi3_ref(x,y,h,test_ind)
 
 		for trial_id in range(test_id,16):
 
 			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y: grad_phi3_ref(x,y,h,trial_ind,I)
+			grad_phi_trial = lambda x,y: grad_phi3_ref(x,y,h,trial_ind)
 
 			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
@@ -202,25 +203,22 @@ def local_stiffness(h,qpn=5,I=False):
 			K[trial_id,test_id] += val * (test_id != trial_id)
 	return K
 
-def local_mass(h,qpn=5,I=False):
+def local_mass(h,qpn=5,y0=0,y1=1):
 	M = np.zeros((16,16))
 	id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
-	y0 = 0
-	y1 = h
-        
-	if I:
-		y0,y1 = 0, 3/4*h
+	y0 *= h
+	y1 *= h
 
 	for test_id in range(16):
 
 		test_ind = id_to_ind[test_id]
-		phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind,I)
+		phi_test = lambda x,y: phi3_2d_ref(x,y,h,test_ind)
 
 		for trial_id in range(test_id,16):
 
 			trial_ind = id_to_ind[trial_id]
-			phi_trial = lambda x,y: phi3_2d_ref(x,y,h,trial_ind,I)
+			phi_trial = lambda x,y: phi3_2d_ref(x,y,h,trial_ind)
 
 			func = lambda x,y: phi_trial(x,y) * phi_test(x,y)
 			val = gauss(func,0,h,y0,y1,qpn)
