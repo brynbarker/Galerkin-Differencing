@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import scipy.sparse.linalg as sla
+from scipy import sparse
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
 
@@ -122,6 +124,7 @@ class Solver:
 		self._solved = False
 
 		self._setup_constraints()
+		self.spC = sparse.csc_matrix(self.C)
 
 	def _build_force(self,proj=False):
 		num_dofs = len(self.mesh.dofs)
@@ -163,6 +166,7 @@ class Solver:
 					self.K[dof.ID,e.dof_ids] += interface_k[e.side][test_id]
 				else:
 					self.K[dof.ID,e.dof_ids] += base_k[test_id]
+		self.spK = sparse.csc_matrix(self.K)
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
@@ -180,18 +184,19 @@ class Solver:
 			scale = 1 if e.fine else 4
 			for test_id,dof in enumerate(e.dof_list):
 				if e.interface:
-					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]
+					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]*scale
 				else:
 					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
+		self.spM = sparse.csc_matrix(self.M)
 
 	def projection(self):
-		#self.ffunc = self.ufunc
 		self._build_mass()
 		self._build_force(proj=True)
-		LHS = self.C.T @ self.M @ self.C
-		RHS = self.C.T @ (self.F_proj - self.M @ self.dirichlet)
-		x_proj = la.solve(LHS,RHS)
-		self.U_proj = self.C @ x_proj + self.dirichlet
+		LHS = self.spC.T * self.spM * self.spC
+		RHS = self.spC.T.dot(self.F_proj - self.spM.dot(self.dirichlet))
+		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		assert conv==0
+		self.U_proj = self.spC.dot( x_proj) + self.dirichlet
 		self._solved = True
 		return x_proj
 
@@ -200,10 +205,11 @@ class Solver:
 			raise ValueError('f not set, call .add_force(func)')
 		self._build_stiffness()
 		self._build_force()
-		LHS = self.C.T @ self.K @ self.C
-		RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
-		x_lap = la.solve(LHS,RHS)
-		self.U_lap = self.C @ x_lap + self.dirichlet
+		LHS = self.spC.T * self.spK * self.spC
+		RHS = self.spC.T.dot(self.F - self.spK.dot( self.dirichlet))
+		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		assert conv==0
+		self.U_lap = self.spC.dot( x_lap) + self.dirichlet
 		self._solved = True
 		return x_lap
 

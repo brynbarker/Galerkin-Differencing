@@ -133,7 +133,6 @@ class Solver:
 		myfunc = self.ufunc if proj else self.ffunc
 
 		id_to_ind = {ID:[int(ID/2),ID%2] for ID in range(4)}
-		#vals,p,w = get_phi_gauss(self.h,self.qpn)
 
 		for e in self.mesh.elements:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y

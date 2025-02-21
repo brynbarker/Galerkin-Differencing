@@ -27,7 +27,7 @@ class HorizontalRefineMesh(Mesh):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (-H<y<1.):
+				if (0<=x<.5) and (-H<y<1.):###
 					strt = dof_id-1-xlen
 					element = Element(e_id,j-1,i-1,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -65,7 +65,7 @@ class HorizontalRefineMesh(Mesh):
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (-H<y<1.):
+				if (0.5<=x<1.) and (-H<y<1.):####
 					strt = dof_id-1-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -111,25 +111,23 @@ class HorizontalRefineSolver(Solver):
 			self.C_full[f_inter[j][2::2],c_inter[j][2:-1]] = v1
 			self.C_full[f_inter[j][2::2],c_inter[j][3:]] = v5
 
-		tmp = []
 		for level in range(2):
 			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
 			ghost_list = np.hstack((b0,b1,t2,t3))
-			tmp += list(ghost_list)
 			self.mesh.periodic_ghost.append(ghost_list)
-			#self.C_full[ghost_list] *= 0.
-			#self.Id[ghost_list] = 1.
-			#Ds,ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
-			#for (D,d) in zip(Ds,ds):
-			#	self.C_full[d,D] = 1
-			#	for ind in [1,-2]:
-			#		if level == 0:
-			#			self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-			#		if level ==1:
-			#			self.C_full[d[ind],:] = self.C_full[D[ind],:]
+			self.C_full[ghost_list] *= 0.
+			self.Id[ghost_list] = 1.
+			Ds,ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
+			for (D,d) in zip(Ds,ds):
+				self.C_full[d,D] = 1
+				for ind in [1,-2]:
+					if level == 0:
+						self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+					if level ==1:
+						self.C_full[d[ind],:] = self.C_full[D[ind],:]
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
-		for dof_id in self.mesh.boundaries+tmp:
+		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y

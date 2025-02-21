@@ -44,8 +44,6 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	labels = {'C0':'1','C1':'1/4','C2':'1/2',
               'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
 
-	moved = []
-	shift = []
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
 			if C[ind,ind] != 1.:
@@ -54,10 +52,12 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 				f_x,f_y = dofs[ind].x,dofs[ind].y
 				for c_ind in dof_inds:
 					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
+					og = [c_x,c_y]
 					if f_x - c_x > .5: c_x += 1
 					if f_y - c_y > .5: c_y += 1
 					if c_x - f_x > .5: c_x -= 1
 					if c_y - f_y > .5: c_y -= 1
+					cmark = '^' if (og[1]==c_y) else '*'
 					if f_x==c_x:
 						c_x -= scale*h/2
 					if dofs[ind].h != h:
@@ -68,7 +68,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 						else:
 							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
 						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
-						plt.plot([c_x],[c_y],c='k',ls='',marker='^')
+						plt.plot([c_x],[c_y],c='k',ls='',marker=cmark)
 		
 	for i,scale in enumerate([-1,1]):
 		for ind in v_ghosts[i]:
@@ -78,8 +78,10 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 				f_x,f_y = dofs[ind].x,dofs[ind].y
 				for c_ind in dof_inds:
 					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
+					og = [c_x,c_y]
 					if f_y - c_y > .5: c_y += 1
 					if f_x - c_x > .5: c_x += 1
+					cmark = '^' if (og[0]==c_x) else '*'
 		
 					if dofs[ind].h != h:
 						c = c_map(C[ind,c_ind])
@@ -89,7 +91,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 						else:
 							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
 						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
-						plt.plot([c_x],[c_y],c='k',ls='',marker='^')
+						plt.plot([c_x],[c_y],c='k',ls='',marker=cmark)
 
 	plt.legend(fontsize=20)
 	return fig
