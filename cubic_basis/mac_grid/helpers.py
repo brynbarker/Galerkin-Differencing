@@ -6,22 +6,27 @@ from IPython.display import HTML
 from cubic_basis.mac_grid.shape_functions import *
 
 #visualization helpers
-v1, v3, v5, v7 = phi3(1/4,1), phi3(3/4,1), phi3(5/4,1), phi3(7/4,1)
-v12, v32 = phi3(1/2,1), phi3(3/2,1)
+v1, v3 = phi3(1/2,1), phi3(3/2,1)
+v11 = v1*v1
+v13 = v1*v3
+v33 = v3*v3
+
+v3_1 = v3/v1
+v33_1 = v33/v1
 
 def c_map(v):
 	if v == v1:
 		return 'C0'
 	elif v == v3:
 		return 'C1'
-	elif v == v5:
-		return 'C2'
-	elif v == v7:
-		return 'C3'
-	elif v == v12:
+	elif v == -1:
 		return 'C4'
-	elif v == v32:
+	elif v == -v3_1:
 		return 'C5'
+	elif v == v33_1:
+		return 'C2'
+	elif v == v3_1:
+		return 'C3'
 	elif v == 1:
 		return 'C6'
 	else:
@@ -45,9 +50,9 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 
 	flags = {'C0':True,'C1':True,'C2':True,
 			 'C3':True,'C4':True,'C5':True,'C6':True,'k':True}
-	labels = {'C0':r'$\phi_3(h/4)$','C1':r'$\phi_3(3h/4)$','C2':r'$\phi_3(5h/4)$',
-              'C3':r'$\phi_3(7h/4)$','C4':r'$\phi_3(h/2)$','C5':r'$\phi_3(3h/2)$',
-			  'C6':1,'k':'other'}
+	labels = {'C0':r'$\phi_3(h/2)$','C1':r'$\phi_3(3h/2)$','C4':r'$-1$',
+              'C5':r'$-\phi_3(3h/2)/\phi_3(h/2)$','C2':r'$\phi_3(3h/2)\phi_3(3h/2)/\phi_3(h/2)$','C3':r'$\phi_3(3h/2)/\phi_3(h/2)$',
+			  'C6':r'$1$','k':'other'}
 
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
@@ -86,6 +91,8 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					og = [c_x,c_y]
 					if f_y - c_y > .5: c_y += 1
 					if f_x - c_x > .5: c_x += 1
+					if c_y - f_y > .5: c_y -= 1
+					if c_x - f_x > .5: c_x -= 1
 					cmark = '^' if (og[0]==c_x) else '*'
 		
 					if dofs[ind].h != h:
