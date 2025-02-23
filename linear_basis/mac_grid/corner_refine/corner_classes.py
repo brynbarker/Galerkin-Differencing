@@ -219,7 +219,6 @@ class CornerRefineSolver(Solver):
 
 		# same level horizontally
 		#for i in range(2):
-		#	self.C_full[q1[1-i][:],q0[i][:]] = 1
 		for pair in [(q0[0],q1[1]),(q1[0],q0[1])]:
 			# lower case are ghosts, upper case are true dofs
 			B0,t0 = np.array(pair[0]+pair[1]).reshape((2,-1))#-1,2)).T
@@ -233,8 +232,6 @@ class CornerRefineSolver(Solver):
 			self.C_full[t0,B0] = 1.
 
 		## same level vertically 
-		##self.C_full[q2[2],q0[3]] = 1
-		##self.C_full[q2[3],q0[2]] = 1
 		for pair in [(q0[2],q2[3]),(q2[2],q0[3])]:
 			# lower case are ghosts, upper case are true dofs
 			b0,B1,T0,t1 = np.array(pair[0]+pair[1]).reshape((4,-1))

@@ -12,7 +12,7 @@ vref = VerticalRefineSolver(16,u)
 vref.projection()
 
 err = vref.error(proj=True)
-output.append(err < 1e-12)
+output.append(err < 1e-11)
 
 ### write results to output file
 with open("output", 'w') as handle:

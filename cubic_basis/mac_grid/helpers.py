@@ -14,6 +14,7 @@ v33 = v3*v3
 v3_1 = v3/v1
 v33_1 = v33/v1
 
+v14, v34, v54, v74 = phi3(1/4,1), phi3(3/4,1), phi3(5/4,1), phi3(7/4,1)
 def c_map(v):
 	if v == v1:
 		return 'C0'
@@ -27,8 +28,14 @@ def c_map(v):
 		return 'C2'
 	elif v == v3_1:
 		return 'C3'
-	elif v == 1:
+	elif v == v74:
 		return 'C6'
+	elif v == v14:
+		return 'C7'
+	elif v == v34:
+		return 'C8'
+	elif v == v54:
+		return 'C9'
 	else:
 		print(v)
 		return 'k'
@@ -48,11 +55,11 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	fig = plt.figure(figsize=(20,20))
 	h = dofs[0].h
 
-	flags = {'C0':True,'C1':True,'C2':True,
+	flags = {'C0':True,'C1':True,'C2':True,'C7':True,'C8':True,'C9':True,
 			 'C3':True,'C4':True,'C5':True,'C6':True,'k':True}
 	labels = {'C0':r'$\phi_3(h/2)$','C1':r'$\phi_3(3h/2)$','C4':r'$-1$',
               'C5':r'$-\phi_3(3h/2)/\phi_3(h/2)$','C2':r'$\phi_3(3h/2)\phi_3(3h/2)/\phi_3(h/2)$','C3':r'$\phi_3(3h/2)/\phi_3(h/2)$',
-			  'C6':r'$1$','k':'other'}
+			  'C6':r'$\phi_3(7h/4)$','C7':r'$\phi_3(h/4)$','C8':r'$\phi_3(3h/4)$','C9':r'$\phi_3(5h/4)$','k':'other'}
 
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
@@ -69,7 +76,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					if c_y - f_y > .5: c_y -= 1
 					cmark = '^' if (og[1]==c_y) else '*'
 					if f_x==c_x:
-						c_x += scale*h/2
+						c_x -= scale*h/2
 					if dofs[ind].h != h:
 						c = c_map(C[ind,c_ind])
 						if flags[c]:
