@@ -194,7 +194,7 @@ class Solver:
 		self._build_force(proj=True)
 		LHS = self.spC.T * self.spM * self.spC
 		RHS = self.spC.T.dot(self.F_proj - self.spM.dot(self.dirichlet))
-		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-16)
 		assert conv==0
 		self.U_proj = self.spC.dot( x_proj) + self.dirichlet
 		self._solved = True
@@ -207,7 +207,7 @@ class Solver:
 		self._build_force()
 		LHS = self.spC.T * self.spK * self.spC
 		RHS = self.spC.T.dot(self.F - self.spK.dot( self.dirichlet))
-		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-16)
 		assert conv==0
 		self.U_lap = self.spC.dot( x_lap) + self.dirichlet
 		self._solved = True

@@ -8,6 +8,7 @@ from cubic_basis.mac_grid.shape_functions import phi3
 
 class CornerRefinementMesh(Mesh):
 	def __init__(self,N):
+		self.dof_counts = []
 		super().__init__(N)
 
 	def _make_coarse(self):
@@ -41,7 +42,7 @@ class CornerRefinementMesh(Mesh):
 					if interface_element: element.set_interface(side)
 					e_id += 1
 
-				if x==H:
+				if x==3*H:
 					self.boundaries.append(dof_id)
 				if (x == 0.5 or x==0):
 					self.interface[0][x==.5].append(dof_id)
@@ -54,6 +55,7 @@ class CornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		self.dof_counts.append(dof_id)
 
 	def _make_q1(self): #coarse
 		self.interface[1] = [[],[],[],[]]
@@ -89,6 +91,7 @@ class CornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		self.dof_counts.append(dof_id)
 
 	def _make_q2(self):
 		self.interface[2] = [[],[],[],[]]
@@ -113,7 +116,7 @@ class CornerRefinementMesh(Mesh):
 					if interface_element: element.set_interface(side)
 					e_id += 1
 
-				if x == H:
+				if x == 3*H:
 					self.boundaries.append(dof_id)
 				if (x==.5) or (x==0):
 					self.interface[2][x>0].append(dof_id)
@@ -125,6 +128,7 @@ class CornerRefinementMesh(Mesh):
 		self.n_els.append(e_id)
 
 		self.dof_count = dof_id
+		self.dof_counts.append(dof_id)
 		self.el_count = e_id
 
 	def _make_q3(self):
@@ -176,39 +180,48 @@ class CornerRefineSolver(Solver):
 		q2 = self.mesh.interface[2]
 		q3 = self.mesh.interface[3]
 
+		fine_ill = []
 
 		corner_swap_g = [[],[]]
+		fine_corner = []
+		coarse_corners = []
 		# vertical refinement (y = .5)
 		v1, v3 = phi3(1/2,1), phi3(3/2,1)
 		for i in range(2):
 			c0,c1,c2,c3 = np.array(q1[2+i]).reshape((4,-1))
 			f0,f1,f2,f3 = np.array(q3[3-i]).reshape((4,-1))
-			corner_swap_g[i].append(c0[:2])
-			corner_swap_g[i].append(c1[:2])
-			corner_swap_g[i].append(c0[-2:])
-			corner_swap_g[i].append(c1[-2:])
+			if i == 0:
+				corner_swap_g[i] += [c0[:2],c1[:2],c0[-2:],c1[-2:]]
+			if i == 1:
+				corner_swap_g[i] += [c2[:2],c3[:2],c2[-2:],c3[-2:]]
 			if i==0:
-				f = f2.copy()
-				flist = [f0,f1,f3]
+				f = f3.copy()
+				flist = [f2,f1,f0]
+				#fine_ill += [f3[0],f3[-1]]
 			else:
-				f = f1.copy()
-				flist = [f0,f2,f3]
+				f = f0.copy()
+				flist = [f1,f2,f3]
+				#fine_ill += [f0[0],f0[-1]]
 
 			self.Id[f] = 1
 			self.C_full[f] *= 0
+	
 
 			for (v,c) in zip([v3,v1,v1,v3],[c0,c1,c2,c3]):
-				self.C_full[f[2:-1:2],c[:-3]] = v*v3/v1
-				self.C_full[f[2:-1:2],c[1:-2]] = v*v1/v1
-				self.C_full[f[2:-1:2],c[2:-1]] = v*v1/v1
-				self.C_full[f[2:-1:2],c[3:]] = v*v3/v1
-			for (v,fdof) in zip([v3,v1,v3],flist):
-				self.C_full[f[2:-1:2],fdof[2:-1:2]] = -v/v1
+				self.C_full[f[2::2],c[:-2]] = v*v3/v3
+				self.C_full[f[::2],c[:-1]] = v*v1/v3
+				self.C_full[f[::2],c[1:]] = v*v1/v3
+				self.C_full[f[:-1:2],c[2:]] = v*v3/v3
+			for (v,fdof) in zip([v1,v1,v3],flist):
+				self.C_full[f[::2],fdof[::2]] = -v/v3
 
 			for (v,c) in zip([v3,v1,v1,v3],[c0,c1,c2,c3]):
-				self.C_full[f[1::2],c[1:-1]] = v/v1
-			for (v,fdof) in zip([v3,v1,v3],flist):
-				self.C_full[f[1::2],fdof[1::2]] = -v/v1
+				self.C_full[f[1::2],c[1:-1]] = v/v3
+			for (v,fdof) in zip([v1,v1,v3],flist):
+				self.C_full[f[1::2],fdof[1::2]] = -v/v3
+
+			fine_corner += [f[0],f[-1]]
+		corner_values = [v3,v3*v1/v3,v3*v1/v3,v3]
 
 		v1, v3, v5, v7 = phi3(1/4,1), phi3(3/4,1), phi3(5/4,1), phi3(7/4,1)
 		# horizontal refinement (x = .5)
@@ -216,18 +229,24 @@ class CornerRefineSolver(Solver):
 			self.Id[q3[1-i]] = 1
 			self.C_full[q3[1-i]] *= 0
 
-			self.C_full[q3[1-i][1:-1:2],q2[i][:-3]] = v5
-			self.C_full[q3[1-i][1:-1:2],q2[i][1:-2]] = v1
-			self.C_full[q3[1-i][1:-1:2],q2[i][2:-1]] = v3
+			self.C_full[q3[1-i][1::2],q2[i][:-2]] = v5
+			self.C_full[q3[1-i][1::2],q2[i][1:-1]] = v1
+			self.C_full[q3[1-i][1::2],q2[i][2:]] = v3
 			self.C_full[q3[1-i][1:-1:2],q2[i][3:]] = v7
 
 			self.C_full[q3[1-i][2::2],q2[i][:-3]] = v7
-			self.C_full[q3[1-i][2::2],q2[i][1:-2]] = v3
-			self.C_full[q3[1-i][2::2],q2[i][2:-1]] = v1
-			self.C_full[q3[1-i][2::2],q2[i][3:]] = v5
+			self.C_full[q3[1-i][::2],q2[i][:-2]] = v3
+			self.C_full[q3[1-i][::2],q2[i][1:-1]] = v1
+			self.C_full[q3[1-i][::2],q2[i][2:]] = v5
 
+		self.C_full[q3[0][-1],q1[0][4]] = v7
+		self.C_full[q3[0][0],q1[0][-5]] = v7
+
+		self.C_full[q3[1][-1],q0[0][4]] = v7
+		self.C_full[q3[1][0],q0[0][-5]] = v7
 
 		## same level horizontally
+		tmp = [[],[]]
 		for pair in [(q0[0],q1[1]),(q1[0],q0[1])]:
 			# lower case are ghosts, upper case are true dofs
 			B0,t0 = pair[0],pair[1]
@@ -241,23 +260,22 @@ class CornerRefineSolver(Solver):
 				self.C_full[d,D] = 1
 				for ind in [0,1,2,3,-4,-3,-2,-1]:
 					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+					self.C_full[:,d[ind]] = 0
 					self.C_full[d[ind],:] = self.C_full[D[ind],:]
+					if self.mesh.dofs[d[ind]].x==.5 and 0<self.mesh.dofs[d[ind]].y<.5:
+						tmp[0].append(D[ind])
+						tmp[1].append(d[ind])
 
 		corner_swap_t = [[],[]]
 		## same level vertically 
 		for i,pair in enumerate([(q0[2],q2[3]),(q2[2],q0[3])]):
 			# lower case are ghosts, upper case are true dofs
 			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(pair[0]+pair[1]).reshape((8,-1))
+			coarse_corners += [[T0[-4],T1[-4],B2[-4],B3[-4]],[T0[3],T1[3],B2[3],B3[3]]]
 			if i==0:
-				corner_swap_t[i].append(T1[:2])
-				corner_swap_t[i].append(T0[:2])
-				corner_swap_t[i].append(T1[-2:])
-				corner_swap_t[i].append(T0[-2:])
+				corner_swap_t[i] += [T0[-3:-1],T1[-3:-1],T0[1:3],T1[1:3]]
 			if i==1:
-				corner_swap_t[i].append(B3[:2])
-				corner_swap_t[i].append(B2[:2])
-				corner_swap_t[i].append(B3[-2:])
-				corner_swap_t[i].append(B2[-2:])
+				corner_swap_t[i] += [B2[-3:-1],B3[-3:-1],B2[1:3],B3[1:3]]
 			ghost_list = np.hstack((b0,b1,t2,t3))
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
@@ -267,28 +285,30 @@ class CornerRefineSolver(Solver):
 				self.C_full[d,D] = 1
 				for ind in [1,-2]:
 					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+					self.C_full[:,d[ind]] = 0
 					self.C_full[d[ind],:] = self.C_full[D[ind],:]
 
-		t = np.array(corner_swap_t).flatten()
-		g = np.array(corner_swap_g).flatten()
-		print(t.shape,g.shape)
-		self.C_full[g] *= 0
-		self.C_full[:,t] += self.C_full[:,g]
-		self.C_full[g,:] = self.C_full[t,:]
-		self.Id[g] = 1
+		for f_ind,c_corner in zip(fine_corner,coarse_corners):
+			for c_ind,v in zip(c_corner,corner_values):
+				self.C_full[f_ind,c_ind] = v
 
 		## corners
-		#pairs = [(q1[0][-1],q2[1][1]),(q2[1][0],q1[0][-2]),
-		#		 (q1[0][0],q2[1][-2]),(q2[1][-1],q1[0][1])]
-		#for (g,t) in pairs:
-		#	self.C_full[g] *= 0
-		#	self.C_full[:,t] += self.C_full[:,g]
-		#	self.C_full[g,:] = self.C_full[t,:]
-		#	self.Id[g] = 1
+		for f_ind,c_corner in zip(fine_corner,coarse_corners):
+			for c_ind,v in zip(c_corner,corner_values):
+				self.C_full[f_ind,c_ind] = v
 
+		t_list = list(np.array(corner_swap_t).flatten())
+		g_list = list(np.array(corner_swap_g).flatten())
+		for (t,g) in zip(t_list+tmp[0],g_list+tmp[1]):
+			self.C_full[g] *= 0
+			self.C_full[:,t] += self.C_full[:,g]
+			self.C_full[:,g] = 0
+			self.C_full[g,:] = self.C_full[t,:]
+			self.Id[g] = 1
+		
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
 		# dirichlet
-		for dof_id in self.mesh.boundaries:
+		for dof_id in self.mesh.boundaries + fine_ill:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
@@ -302,8 +322,17 @@ class CornerRefineSolver(Solver):
 		if retfig: return fig
 	
 	def vis_mesh(self,retfig=True):
-		fig = super().vis_mesh(corner=True,retfig=True)
-		if retfig: return fig
+		fig,ax = plt.subplots(2,2,figsize=(7,7))
+		mk = ['^','o']
+		inds = [[0,1],[0,0],[1,1],[1,0]]
+		for ind,dof in enumerate(self.mesh.dofs.values()):
+			m = mk[dof.h==self.mesh.h]
+			axind = sum([ind < dcount for dcount in self.mesh.dof_counts])
+			axi,axj = inds[axind]
+			c = 'C0' if ind in self.true_dofs else 'C1'
+			ax[axi,axj].plot(dof.x,dof.y,marker=m,color=c)
+
+		plt.show()
 
 	def vis_periodic(self,retfig=False):
 		fig = super().vis_periodic('corner')

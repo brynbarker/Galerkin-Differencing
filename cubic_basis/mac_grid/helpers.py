@@ -22,11 +22,11 @@ def c_map(v):
 		return 'C1'
 	elif v == -1:
 		return 'C4'
-	elif v == -v3_1:
+	elif v == -v1/v3:#-v3_1:
 		return 'C5'
-	elif v == v33_1:
+	elif v == v11/v3:#v33_1:
 		return 'C2'
-	elif v == v3_1:
+	elif v == v1/v3:#v3_1:
 		return 'C3'
 	elif v == v74:
 		return 'C6'
@@ -36,9 +36,11 @@ def c_map(v):
 		return 'C8'
 	elif v == v54:
 		return 'C9'
+	elif v == 1:
+		return 'k'
 	else:
 		print(v)
-		return 'k'
+		return 'red'
 
 def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	if gridtype == 'horiz':
@@ -56,14 +58,15 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	h = dofs[0].h
 
 	flags = {'C0':True,'C1':True,'C2':True,'C7':True,'C8':True,'C9':True,
-			 'C3':True,'C4':True,'C5':True,'C6':True,'k':True}
+			 'C3':True,'C4':True,'C5':True,'C6':True,'k':True,'red':True}
 	labels = {'C0':r'$\phi_3(h/2)$','C1':r'$\phi_3(3h/2)$','C4':r'$-1$',
               'C5':r'$-\phi_3(3h/2)/\phi_3(h/2)$','C2':r'$\phi_3(3h/2)\phi_3(3h/2)/\phi_3(h/2)$','C3':r'$\phi_3(3h/2)/\phi_3(h/2)$',
-			  'C6':r'$\phi_3(7h/4)$','C7':r'$\phi_3(h/4)$','C8':r'$\phi_3(3h/4)$','C9':r'$\phi_3(5h/4)$','k':'other'}
-
+			  'C6':r'$\phi_3(7h/4)$','C7':r'$\phi_3(h/4)$','C8':r'$\phi_3(3h/4)$','C9':r'$\phi_3(5h/4)$','k':'1','red':'other'}
+	done = set()
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
-			if C[ind,ind] != 1.:
+			if C[ind,ind] != 1. and ind not in done:
+				done.add(ind)
 				dof_inds = np.nonzero(C[ind])[0]
 
 				f_x,f_y = dofs[ind].x,dofs[ind].y
@@ -74,7 +77,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					if f_y - c_y > .5: c_y += 1
 					if c_x - f_x > .5: c_x -= 1
 					if c_y - f_y > .5: c_y -= 1
-					cmark = '^' if (og[1]==c_y) else '*'
+					cmark = '^' if (og[0]==c_x and og[1]==c_y) else '*'
 					if f_x==c_x:
 						c_x -= scale*h/2
 					if dofs[ind].h != h:
@@ -89,7 +92,8 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 		
 	for i,scale in enumerate([-1,1]):
 		for ind in v_ghosts[i]:
-			if C[ind,ind] != 1.:
+			if C[ind,ind] != 1. and ind not in done:
+				done.add(ind)
 				dof_inds = np.nonzero(C[ind])[0]
 
 				f_x,f_y = dofs[ind].x,dofs[ind].y
@@ -100,7 +104,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 					if f_x - c_x > .5: c_x += 1
 					if c_y - f_y > .5: c_y -= 1
 					if c_x - f_x > .5: c_x -= 1
-					cmark = '^' if (og[0]==c_x) else '*'
+					cmark = '^' if (og[0]==c_x and og[1]==c_y) else '*'
 		
 					if dofs[ind].h != h:
 						c = c_map(C[ind,c_ind])
@@ -180,9 +184,9 @@ def vis_periodic(C,dofs,gridtype):
 			if gridtype=='vert': x_shft=0
 			dof_inds = np.nonzero(row)[0]
 			for c_ind in dof_inds:
-				if C[ind,c_ind] != 1:
-					print(ind,c_ind,C[ind,c_ind])
-				if dofs[ind].h == dofs[c_ind].h:
+				#if C[ind,c_ind] != 1:
+				#	skip=True#print(ind,c_ind,C[ind,c_ind])
+				if dofs[ind].h == dofs[c_ind].h and C[ind,c_ind]==1:
 					c_x,c_y = dofs[c_ind].x,dofs[c_ind].y
 					plt.plot([g_x+x_shft,c_x+x_shft],[g_y,c_y],col[row[c_ind]==1])
 					plt.scatter(c_x+x_shft,c_y,color=c[fine][1],marker=m[fine])
