@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from linear_basis.mac_grid.horiz_refine.horiz_classes import HorizontalRefineSolver
+from 2D.linear_basis.mac_grid.horiz_refine.horiz_classes import HorizontalRefineSolver
 import numpy as np
 
 output = []
