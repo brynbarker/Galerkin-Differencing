@@ -98,27 +98,27 @@ class VerticalRefineSolver(Solver):
 			c0,c1,c2,c3 = np.array(c_inter[j]).reshape((4,-1))
 			f0,f1,f2,f3 = np.array(f_inter[j]).reshape((4,-1))
 			if j==0:
-				f = f2.copy()
-				flist = [f0,f1,f3]
+				f = f3.copy()
+				flist = [f2,f1,f0]
 			else:
-				f = f1.copy()
-				flist = [f0,f2,f3]
+				f = f0.copy()
+				flist = [f1,f2,f3]
 
 			self.Id[f] = 1
 			self.C_full[f] *= 0
 
 			for (v,c) in zip([v3,v1,v1,v3],[c0,c1,c2,c3]):
-				self.C_full[f[2:-1:2],c[:-3]] = v*v3/v1
-				self.C_full[f[2:-1:2],c[1:-2]] = v*v1/v1
-				self.C_full[f[2:-1:2],c[2:-1]] = v*v1/v1
-				self.C_full[f[2:-1:2],c[3:]] = v*v3/v1
-			for (v,fdof) in zip([v3,v1,v3],flist):
-				self.C_full[f[2:-1:2],fdof[2:-1:2]] = -v/v1
+				self.C_full[f[2:-1:2],c[:-3]] = v*v3/v3
+				self.C_full[f[2:-1:2],c[1:-2]] = v*v1/v3
+				self.C_full[f[2:-1:2],c[2:-1]] = v*v1/v3
+				self.C_full[f[2:-1:2],c[3:]] = v*v3/v3
+			for (v,fdof) in zip([v1,v1,v3],flist):
+				self.C_full[f[2:-1:2],fdof[2:-1:2]] = -v/v3
 
 			for (v,c) in zip([v3,v1,v1,v3],[c0,c1,c2,c3]):
-				self.C_full[f[1::2],c[1:-1]] = v/v1
-			for (v,fdof) in zip([v3,v1,v3],flist):
-				self.C_full[f[1::2],fdof[1::2]] = -v/v1
+				self.C_full[f[1::2],c[1:-1]] = v/v3
+			for (v,fdof) in zip([v1,v1,v3],flist):
+				self.C_full[f[1::2],fdof[1::2]] = -v/v3
 
 		# periodic
 		for level in range(2):
