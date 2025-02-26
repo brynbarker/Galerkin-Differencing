@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from linear_basis.mac_grid.helpers import gauss
+from linear_basis.mac_grid.helpers_2d import gauss
 from scipy.integrate import dblquad
 import numpy as np
 
