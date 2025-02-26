@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-from 2D.linear_basis.mac_grid.horiz_refine.horiz_classes import HorizontalRefineSolver
-from 2D.linear_basis.mac_grid.vert_refine.vert_classes import VerticalRefineSolver
-from 2D.linear_basis.mac_grid.corner_refine.corner_classes import CornerRefineSolver
+from linear_basis.mac_grid.horiz_refine.horiz_classes import HorizontalRefineSolver
+from linear_basis.mac_grid.vert_refine.vert_classes import VerticalRefineSolver
+from linear_basis.mac_grid.corner_refine.corner_classes import CornerRefineSolver
 import numpy as np
 
 output = []

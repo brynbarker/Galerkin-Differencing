@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from 2D.linear_basis.mac_grid.corner_refine.corner_classes import CornerRefineSolver
+from linear_basis.mac_grid.corner_refine.corner_classes import CornerRefineSolver
 import numpy as np
 
 output = []

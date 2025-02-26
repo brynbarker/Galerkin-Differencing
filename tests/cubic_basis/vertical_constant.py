@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from 2D.cubic_basis.mac_grid.vert_classes import VerticalRefineSolver
+from cubic_basis.mac_grid.vert_classes import VerticalRefineSolver
 import numpy as np
 
 output = []
