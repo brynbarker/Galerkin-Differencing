@@ -4,10 +4,58 @@ import scipy.linalg as la
 import scipy.sparse.linalg as sla
 from scipy import sparse
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+from scipy.integrate import tplquad
 
 
 from linear_basis.mac_grid.helpers import *
-
+M_ref = np.array([[8., 4., 4., 2., 4., 2., 2., 1.],
+                  [4., 8., 2., 4., 2., 4., 1., 2.],
+                  [4., 2., 8., 4., 2., 1., 4., 2.],
+                  [2., 4., 4., 8., 1., 2., 2., 4.],
+                  [4., 2., 2., 1., 8., 4., 4., 2.],
+                  [2., 4., 1., 2., 4., 8., 2., 4.],
+                  [2., 1., 4., 2., 4., 2., 8., 4.],
+                  [1., 2., 2., 4., 2., 4., 4., 8.]])/27/8
+MY = np.array([[0.875, 0.875, 0.5  , 0.5  , 0.875, 0.875, 0.5  , 0.5  ],
+				[0.875, 0.875, 0.5	, 0.5  , 0.875, 0.875, 0.5	, 0.5  ],
+				[0.5  , 0.5  , 0.125, 0.125, 0.5  , 0.5  , 0.125, 0.125],
+				[0.5  , 0.5  , 0.125, 0.125, 0.5  , 0.5  , 0.125, 0.125],
+				[0.875, 0.875, 0.5	, 0.5  , 0.875, 0.875, 0.5	, 0.5  ],
+				[0.875, 0.875, 0.5	, 0.5  , 0.875, 0.875, 0.5	, 0.5  ],
+				[0.5  , 0.5  , 0.125, 0.125, 0.5  , 0.5  , 0.125, 0.125],
+				[0.5  , 0.5  , 0.125, 0.125, 0.5  , 0.5  , 0.125, 0.125]])
+MZ = np.array([[0.875, 0.875, 0.875, 0.875, 0.5  , 0.5	, 0.5  , 0.5  ],
+				[0.875, 0.875, 0.875, 0.875, 0.5  , 0.5  , 0.5	, 0.5  ],
+				[0.875, 0.875, 0.875, 0.875, 0.5  , 0.5  , 0.5	, 0.5  ],
+				[0.875, 0.875, 0.875, 0.875, 0.5  , 0.5  , 0.5	, 0.5  ],
+				[0.5  , 0.5  , 0.5	, 0.5  , 0.125, 0.125, 0.125, 0.125],
+				[0.5  , 0.5  , 0.5	, 0.5  , 0.125, 0.125, 0.125, 0.125],
+				[0.5  , 0.5  , 0.5	, 0.5  , 0.125, 0.125, 0.125, 0.125],
+				[0.5  , 0.5  , 0.5	, 0.5  , 0.125, 0.125, 0.125, 0.125]])
+K_ref = np.array([[ 4., -0., -0., -1., -0., -1., -1., -1.],
+                  [-0.,  4., -1., -0., -1., -0., -1., -1.],
+                  [-0., -1.,  4., -0., -1., -1., -0., -1.],
+                  [-1., -0., -0.,  4., -1., -1., -1., -0.],
+                  [-0., -1., -1., -1.,  4., -0., -0., -1.],
+                  [-1., -0., -1., -1., -0.,  4., -1., -0.],
+                  [-1., -1., -0., -1., -0., -1.,  4., -0.],
+                  [-1., -1., -1., -0., -1., -0., -0.,  4.]])/12
+KY = np.array([[.75, 1, 1, .5, 1, 1, .5, .5],
+               [1, .75, .5, 1, 1, 1, .5, .5],
+               [1, .5, .25, 1, .5, .5, 1, 0],
+               [.5, 1, 1, .25, .5, .5, 0, 1],
+               [1, 1, .5, .5, .75, 1, 1, .5],
+               [1, 1, .5, .5, 1, .75, .5, 1],
+               [.5, .5, 1, 0, 1, .5, .25, 1],
+               [.5, .5, 0, 1, .5, 1, 1, .25]])
+KY_add = np.array([[ 0., -1.,  0.,  0., -1.,  0.,  0.,  0.],
+                   [-1.,  0.,  0.,  0.,  0., -1.,  0.,  0.],
+                   [ 0.,  0.,  0.,  1.,  0.,  0.,  1.,  0.],
+                   [ 0.,  0.,  1.,  0.,  0.,  0.,  0.,  1.],
+                   [-1.,  0.,  0.,  0.,  0., -1.,  0.,  0.],
+                   [ 0., -1.,  0.,  0., -1.,  0.,  0.,  0.],
+                   [ 0.,  0.,  1.,  0.,  0.,  0.,  0.,  1.],
+                   [ 0.,  0.,  0.,  1.,  0.,  0.,  1.,  0.]])/3/16
 
 class Node:
 	def __init__(self,ID,j,i,k,x,y,z,h):
@@ -167,7 +215,7 @@ class Solver:
 
 		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
 		
-		base_k = local_stiffness(self.h,qpn=self.qpn)
+		base_k = K_ref*self.h #local_stiffness(self.h,qpn=self.qpn)
 	
 		_k0 = local_stiffness(self.h,qpn=self.qpn,y1=.5)
 		_k1 = local_stiffness(self.h,qpn=self.qpn,y0=.5)
@@ -180,11 +228,12 @@ class Solver:
 		interface_k = [_k0,_k1,_k2,_k3,_k4,_k5,_k6,_k7]
 
 		for e in self.mesh.elements:
+			scale = 1 if e.fine else 2
 			for test_id,dof in enumerate(e.dof_list):
 				if e.interface:
-					self.K[dof.ID,e.dof_ids] += interface_k[e.side][test_id]
+					self.K[dof.ID,e.dof_ids] += interface_k[e.side][test_id]*scale
 				else:
-					self.K[dof.ID,e.dof_ids] += base_k[test_id]
+					self.K[dof.ID,e.dof_ids] += base_k[test_id]*scale
 		self.spK = sparse.csc_matrix(self.K)
 
 	def _build_mass(self):
@@ -193,16 +242,16 @@ class Solver:
 
 		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
 
-		base_m = local_mass(self.h,qpn=self.qpn)
-	
-		_m0 = local_mass(self.h,qpn=self.qpn,y1=.5)
-		_m1 = local_mass(self.h,qpn=self.qpn,y0=.5)
-		_m2 = local_mass(self.h,qpn=self.qpn,z1=.5)
-		_m3 = local_mass(self.h,qpn=self.qpn,z0=.5)
-		_m4 = local_mass(self.h,qpn=self.qpn,y1=.5,z1=.5)
-		_m5 = local_mass(self.h,qpn=self.qpn,y1=.5,z0=.5)
-		_m6 = local_mass(self.h,qpn=self.qpn,y0=.5,z1=.5)
-		_m7 = local_mass(self.h,qpn=self.qpn,y0=.5,z0=.5)
+		base_m = M_ref * self.h**3  #local_mass(self.h,qpn=self.qpn)
+
+		_m0 = base_m*MY  #local_mass(self.h,qpn=self.qpn,y1=.5)
+		_m1 = base_m-_m0 #local_mass(self.h,qpn=self.qpn,y0=.5)
+		_m2 = base_m*MZ  #local_mass(self.h,qpn=self.qpn,z1=.5)
+		_m3 = base_m-_m2 #local_mass(self.h,qpn=self.qpn,z0=.5)
+		_m4 = _m0*MZ	 #local_mass(self.h,qpn=self.qpn,y1=.5,z1=.5)
+		_m5 = _m0-_m4	 #local_mass(self.h,qpn=self.qpn,y1=.5,z0=.5)
+		_m6 = _m1*MZ	 #local_mass(self.h,qpn=self.qpn,y0=.5,z1=.5)
+		_m7 = _m1-_m6	 #local_mass(self.h,qpn=self.qpn,y0=.5,z0=.5)
 		interface_m = [_m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7]
 
 		for e in self.mesh.elements:
@@ -219,7 +268,7 @@ class Solver:
 		self._build_force(proj=True)
 		LHS = self.spC.T * self.spM * self.spC
 		RHS = self.spC.T.dot(self.F_proj - self.spM.dot(self.dirichlet))
-		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-14)
 		assert conv==0
 		self.U_proj = self.spC.dot( x_proj) + self.dirichlet
 		self._solved = True
@@ -232,7 +281,7 @@ class Solver:
 		self._build_force()
 		LHS = self.spC.T * self.spK * self.spC
 		RHS = self.spC.T.dot(self.F - self.spK.dot( self.dirichlet))
-		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-12)
+		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-14)
 		assert conv==0
 		self.U_lap = self.spC.dot( x_lap) + self.dirichlet
 		self._solved = True
@@ -286,7 +335,7 @@ class Solver:
 		plt.show()
 		return
 
-	def vis_dof_sol(self,proj=False,err=False):
+	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False):
 		U = self.U_proj if proj else self.U_lap
 		x0,y0,z0,c0 = [], [], [], []
 		x1,y1,z1,c1 = [], [], [], []
@@ -310,11 +359,29 @@ class Solver:
 		
 		m = ['o' for v in c1]+['^' for v in c0]
 		
-		lo = min(c0+c1)
-		hi = max(c0+c1)
+		if fltr:
+			mx = max(c0)
+			msk = np.array(c0)>fval*mx
+			x0 = np.array(x0)[msk]
+			y0 = np.array(y0)[msk]
+			z0 = np.array(z0)[msk]
+			c0 = np.array(c0)[msk]
+			vals = np.array([x0,y0,z0,c0]).T
+			if dsp:print(vals)
+
+			mx = max(c1)
+			msk = np.array(c1)>fval*mx
+			x1 = np.array(x1)[msk]
+			y1 = np.array(y1)[msk]
+			z1 = np.array(z1)[msk]
+			c1 = np.array(c1)[msk]
+			vals = np.array([x1,y1,z1,c1]).T
+			if dsp:print(vals)
+
+
 		fig = plt.figure(figsize=plt.figaspect(1))
 		ax = fig.add_subplot(projection='3d')
-		plot1 = ax.scatter(x0,y0,z0,marker='^',c=c0,cmap='jet')#,vmin=vmin,vmax=vmax)
+		plot1 = ax.scatter(x0,y0,z0,marker='^',c=c0,cmap='jet')
 		fig.colorbar(plot1,location='left')
 		ax.set_xlim(-1.5*self.h,1+1.5*self.h)
 		ax.set_ylim(-1.5*self.h,1+1.5*self.h)
@@ -323,7 +390,7 @@ class Solver:
 
 		fig = plt.figure(figsize=plt.figaspect(1))
 		ax = fig.add_subplot(projection='3d')
-		plot2 = ax.scatter(x1,y1,z1,marker='o',c=c1,cmap='jet')#,vmin=vmin,vmax=vmax)
+		plot2 = ax.scatter(x1,y1,z1,marker='o',c=c1,cmap='jet')
 		fig.colorbar(plot2,location='left')
 		ax.set_xlim(-1.5*self.h,1+1.5*self.h)
 		ax.set_ylim(-1.5*self.h,1+1.5*self.h)

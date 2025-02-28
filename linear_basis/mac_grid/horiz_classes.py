@@ -17,9 +17,6 @@ class HorizontalRefineMesh(Mesh):
 		ydom = np.linspace(0-H/2,1+H/2,self.N+2)
 		zdom = np.linspace(0-H/2,1+H/2,self.N+2)
 
-		pery = {-H/2:[],H/2:[],1-H/2:[],1+H/2:[]}
-		perz = {-H/2:[],H/2:[],1-H/2:[],1+H/2:[]}
-
 		xlen,ylen,zlen = len(xdom),len(ydom),len(zdom)
 
 		dof_id,e_id = 0,0
@@ -44,18 +41,23 @@ class HorizontalRefineMesh(Mesh):
 					if x==H:
 						self.boundaries.append(dof_id)
 
-					if y < H or y > 1-H:
-						pery[y].append(dof_id)
+					if y < 0 or y > 1 or z < 0 or z > 1:
+						#self.boundaries.append(dof_id)
+						yind = ylen-2 if i==0 else i
+						yind = 1 if i==ylen-1 else yind
 
-					if z < H or z > 1-H:
-						perz[z].append(dof_id)
+						zind = zlen-2 if k==0 else k
+						zind = 1 if k==zlen-1 else zind
+					
+						fill_id = zind*(xlen*ylen)+yind*(xlen)+j
+						
+						self.periodic.append([dof_id,fill_id,x==0 or x==.5])
 
 					if (x==.5 or x==0):
 						self.interface[0][x==.5].append(dof_id)
 
 					dof_id += 1
 
-		self.periodic += [pery, perz]
 		self.n_coarse_dofs = dof_id
 		self.n_coarse_els = e_id
 
@@ -66,9 +68,6 @@ class HorizontalRefineMesh(Mesh):
 		xdom = np.linspace(0.5,1.,self.N+1)
 		ydom = np.linspace(0-H/2,1+H/2,2*self.N+2)
 		zdom = np.linspace(0-H/2,1+H/2,2*self.N+2)
-
-		pery = {-H/2:[],H/2:[],1-H/2:[],1+H/2:[]}
-		perz = {-H/2:[],H/2:[],1-H/2:[],1+H/2:[]}
 
 		xlen,ylen,zlen = len(xdom),len(ydom),len(zdom)
 
@@ -93,17 +92,21 @@ class HorizontalRefineMesh(Mesh):
 						
 						e_id += 1
 
-					if y < H or y > 1-H:
-						pery[y].append(dof_id)
-
-					if z < H or z > 1-H:
-						perz[z].append(dof_id)
-
 					if (x == 0.5 or x==1.):
 						self.interface[1][x==.5].append(dof_id)
 
+					elif y < 0 or y > 1 or z < 0 or z > 1:
+						yind = ylen-2 if i==0 else i
+						yind = 1 if i==ylen-1 else yind
+
+						zind = zlen-2 if k==0 else k
+						zind = 1 if k==zlen-1 else zind
+					
+						fill_id = zind*(xlen*ylen)+yind*(xlen)+j+self.n_coarse_dofs
+						
+						self.periodic.append([dof_id,fill_id,False])
+
 					dof_id += 1
-		self.periodic += [pery, perz]
 
 
 class HorizontalRefineSolver(Solver):
@@ -139,21 +142,15 @@ class HorizontalRefineSolver(Solver):
 							v = frac[csy==fsy]*frac[csz==fsz]
 							self.C_full[finds,cinds] = v
 
-		for p_dict in self.mesh.periodic:
-			# lower case are ghosts, upper case are true dofs
-			b0,B1,T0,t1 = p_dict.values()
-			ghost_list = b0+t1
-			self.mesh.periodic_ghost.append(ghost_list)
-			self.C_full[ghost_list] *= 0.
-			Ds,ds = [T0,B1],[b0,t1]
-			for (D,d) in zip(Ds,ds):
-				for ind in [0,-1]:
-					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-					self.C_full[d[ind],:] = self.C_full[D[ind],:]
-				self.C_full[d,D] = 1.
-			self.Id[ghost_list] = 1.
+		dL,DL,maskL = np.array(self.mesh.periodic).T
+		for (d,D,mask) in zip(dL,DL,maskL):
+			self.Id[d] = 1
+			self.C_full[d,:] = self.C_full[D,:]
+			if mask:
+				self.C_full[:,D] += self.C_full[:,d]
+			self.C_full[:,d] *= 0
 
-		#self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
+		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.

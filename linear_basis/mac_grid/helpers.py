@@ -215,7 +215,7 @@ def gauss(f,a,b,c,d,q,r,n):
 		outer += w[j]*middle
 	return outer*xscale*yscale*zscale
 
-def local_stiffness(h,qpn=5,y0=0,y1=1,z0=1,z1=1):
+def local_stiffness(h,qpn=5,y0=0,y1=1,z0=0,z1=1):
 	K = np.zeros((8,8))
 	id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
 
