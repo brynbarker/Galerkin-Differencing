@@ -165,7 +165,7 @@ class Mesh:
 	def _update_elements(self):
 		for e in self.elements:
 			e.update_dofs(self.dofs)
-
+	
 class Solver:
 	def __init__(self,N,u,f=None,qpn=5,meshtype=Mesh):
 		self.N = N
@@ -297,6 +297,47 @@ class Solver:
 		self.ufunc = u
 
 	def vis_constraints(self):
+		fig,ax = plt.subplots(1,2,figsize=(16,7))
+		markers = np.array([['s','^'],['v','o']])
+		cols = {1/16:'C0',3/16:'C1',9/16:'C2'}
+		flags = {1/16:False,3/16:False,9/16:False}
+		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16'}
+		for ind,b in enumerate(self.Id):
+			if b:
+				row = self.C_full[ind]
+				dof = self.mesh.dofs[ind]
+				x,y,z = dof.x,dof.y,dof.z
+				axind = int(x==.5)
+				if dof.h==self.h:
+					for cind,val in enumerate(row):
+						if abs(val)>1e-12:
+							cdof = self.mesh.dofs[cind]
+							cx,cy,cz = cdof.x,cdof.y,cdof.z
+							assert cx==x or x-1==cx
+							if cdof.h!=dof.h:
+								if cy-y > .5: ty=cy-1
+								elif y-cy>.5: ty=cy+1
+								else: ty=cy
+								if cz-z > .5: tz=cz-1
+								elif z-cz>.5: tz=cz+1
+								else: tz=cz
+								m = markers[int(ty==cy),int(tz==cz)]
+								ax[axind].scatter([y],[z],color='k',marker='o')
+								ax[axind].scatter([ty],[tz],color='k',marker=m)
+								if flags[val]==False:
+									ax[axind].plot([y,ty],[z,tz],color=cols[val],label=labs[val])
+									flags[val] = True
+								else:
+									ax[axind].plot([y,ty],[z,tz],color=cols[val])
+							else:
+								assert val==1
+							
+							
+					
+					
+		ax[1].legend()
+		plt.show()
+		return
 		if True:
 			fig,ax = plt.subplots(2,2)
 			for csy in [0,1]:
@@ -335,8 +376,9 @@ class Solver:
 		plt.show()
 		return
 
-	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False):
+	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None):
 		U = self.U_proj if proj else self.U_lap
+		U = myU if myU is not None else U
 		x0,y0,z0,c0 = [], [], [], []
 		x1,y1,z1,c1 = [], [], [], []
 		for dof in self.mesh.dofs.values():
@@ -447,8 +489,8 @@ class Solver:
 			return val
 		return solution
 
-	def error(self,qpn=5,proj=False):
-		uh = self.sol(proj=proj)
+	def error(self,qpn=5,proj=False,weights=None):
+		uh = self.sol(proj=proj,weights=weights)
 			
 		l2_err = 0.
 		for e in self.mesh.elements:

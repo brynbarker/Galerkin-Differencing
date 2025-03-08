@@ -38,7 +38,7 @@ class HorizontalRefineMesh(Mesh):
 						if zinterface_element: element.set_interface(zside)
 						e_id += 1
 				
-					if x==H:
+					if x==2*H:
 						self.boundaries.append(dof_id)
 
 					if y < 0 or y > 1 or z < 0 or z > 1:
@@ -107,6 +107,7 @@ class HorizontalRefineMesh(Mesh):
 						self.periodic.append([dof_id,fill_id,False])
 
 					dof_id += 1
+		self.dof_count = dof_id
 
 
 class HorizontalRefineSolver(Solver):
@@ -131,7 +132,7 @@ class HorizontalRefineSolver(Solver):
 			cgrid = c_inter[j].reshape((nc,nc))
 			fgrid = f_inter[j].reshape((nf,nf))
 
-			frac = [.75,.25]
+			frac = [.25,.75]
 			ends = [-1,None]
 			for csy in [0,1]:
 				for csz in [0,1]:
@@ -161,28 +162,28 @@ class HorizontalRefineSolver(Solver):
 		self.true_dofs = list(np.where(self.Id==0)[0])
 		self.C = self.C_full[:,self.true_dofs]
 
-	def vis_constraints(self,retfig=False):
-		fig = vis_constraints(self.C_full,self.mesh.dofs,self.mesh.interface[1],'horiz')
-		if retfig: return fig
-
 	def vis_periodic(self,retfig=False):
 		fig = super().vis_periodic('horiz')
 		if retfig: return fig
 
 	def xy_to_e(self,x,y,z): # over_written
-		n_x_els = [self.N/2,self.N]
-		n_y_els = [self.N,self.N*2]
+		n_y_els = [self.N+1,self.N*2+1]
 		
 		x -= (x==1)*1e-12
 		y -= (y==1)*1e-12
 		z -= (z==1)*1e-12
 		fine = True if x >= 0.5 else False
-		x_ind = int((x-fine*.5)/((2-fine)*self.h))
-		y_ind = int(y/((2-fine)*self.h)+.5)
-		z_ind = int(z/((2-fine)*self.h)+.5)
-		el_ind = fine*self.mesh.n_coarse_els+z_ind*(n_x_els[fine]*n_y_els[fine])+y_ind*n_x_els[fine]+x_ind
+		if fine:
+			x_ind = int((x-.5)/self.h)
+			y_ind = int(y/self.h+1/2)
+			z_ind = int(z/self.h+1/2)
+			el_ind = self.mesh.n_coarse_els+z_ind*(self.N*n_y_els[1])+y_ind*self.N+x_ind
+		else:
+			x_ind = int(x/2/self.h)
+			y_ind = int(y/2/self.h+1/2)
+			z_ind = int(z/2/self.h+1/2)
+			el_ind = z_ind*(self.N/2*n_y_els[0])+y_ind*self.N/2+x_ind
 		e = self.mesh.elements[int(el_ind)]
-		print((x,y,z),fine,(x_ind,y_ind,z_ind),(e.j,e.i,e.k),e.dom)
 		assert x >= e.dom[0] and x <= e.dom[1]
 		assert y >= e.dom[2] and y <= e.dom[3]
 		assert z >= e.dom[4] and z <= e.dom[5]
