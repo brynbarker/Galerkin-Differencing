@@ -6,16 +6,17 @@ from linear_basis.mac_grid.classes import Node, Element, Mesh, Solver
 from linear_basis.mac_grid.helpers import vis_constraints
 
 
-class HorizontalRefineMesh(Mesh):
+class VerticalRefineMesh(Mesh):
 	def __init__(self,N):
 		super().__init__(N)
 
 	def _make_coarse(self): # overwritten
 		self.interface[0] = [[],[]]
 		H = self.h*2
-		xdom = np.linspace(0,0.5,int(self.N/2)+1)
+
+		xdom = np.linspace(0,1,self.N+1)
 		ydom = np.linspace(0-H/2,1+H/2,self.N+2)
-		zdom = np.linspace(0-H/2,1+H/2,self.N+2)
+		zdom = np.linspace(0-H/2,.5+H/2,int(self.N/2)+2)
 
 		xlen,ylen,zlen = len(xdom),len(ydom),len(zdom)
 
@@ -29,7 +30,7 @@ class HorizontalRefineMesh(Mesh):
 				for j,x in enumerate(xdom):
 					self.dofs[dof_id] = Node(dof_id,j,i,k,x,y,z,H)
 
-					if (0<=x<.5) and (y<1) and (z<1):
+					if (x<1) and (y<1) and (z<.5):
 						strt = dof_id
 						element = Element(e_id,j,i,k,x,y,z,H)
 						element.add_dofs(strt,xlen,ylen)
@@ -38,23 +39,24 @@ class HorizontalRefineMesh(Mesh):
 						if zinterface_element: element.set_interface(zside)
 						e_id += 1
 				
-					if x==2*H:
-						self.boundaries.append(dof_id)
+					#if z==5*H/2 or z==3*H/2:
+					#	self.boundaries.append(dof_id)
 
-					if y < 0 or y > 1 or z < 0 or z > 1:
+					if x==1 or y < 0 or y > 1:
 						#self.boundaries.append(dof_id)
+						#xind = xlen-1 if j==0 else j
+						#xind = 1 if j==xlen-1 else xind
+						xind = 0 if j==xlen-1 else j
+
 						yind = ylen-2 if i==0 else i
 						yind = 1 if i==ylen-1 else yind
-
-						zind = zlen-2 if k==0 else k
-						zind = 1 if k==zlen-1 else zind
 					
-						fill_id = zind*(xlen*ylen)+yind*(xlen)+j
+						fill_id = k*(xlen*ylen)+yind*(xlen)+xind
 						
-						self.periodic.append([dof_id,fill_id,x==0 or x==.5])
+						self.periodic.append([dof_id,fill_id,z>.5-H or z<H])
 
-					if (x==.5 or x==0):
-						self.interface[0][x==.5].append(dof_id)
+					if (z>.5-H or z<H):
+						self.interface[0][z>H].append(dof_id)
 
 					dof_id += 1
 
@@ -65,9 +67,9 @@ class HorizontalRefineMesh(Mesh):
 		self.interface[1] = [[],[]]
 
 		H = self.h
-		xdom = np.linspace(0.5,1.,self.N+1)
+		xdom = np.linspace(0,1.,2*self.N+1)
 		ydom = np.linspace(0-H/2,1+H/2,2*self.N+2)
-		zdom = np.linspace(0-H/2,1+H/2,2*self.N+2)
+		zdom = np.linspace(0.5-H/2,1+H/2,self.N+2)
 
 		xlen,ylen,zlen = len(xdom),len(ydom),len(zdom)
 
@@ -81,7 +83,7 @@ class HorizontalRefineMesh(Mesh):
 				for j,x in enumerate(xdom):
 					self.dofs[dof_id] = Node(dof_id,j,i,k,x,y,z,H)
 
-					if (0.5<=x<1.) and (y<1) and (z<1):
+					if (x<1.) and (y<1) and (z<1):
 						strt = dof_id
 						element = Element(e_id,j,i,k,x,y,z,H)
 						element.add_dofs(strt,xlen,ylen)
@@ -92,27 +94,30 @@ class HorizontalRefineMesh(Mesh):
 						
 						e_id += 1
 
-					if (x == 0.5 or x==1.):
-						self.interface[1][x==.5].append(dof_id)
+					if z==1-3*H:
+						self.boundaries.append(dof_id)
 
-					elif y < 0 or y > 1 or z < 0 or z > 1:
-						yind = ylen-2 if i==0 else i
-						yind = 1 if i==ylen-1 else yind
+					if (z < 0.5+H or z>1.-H):
+						self.interface[1][z<1-H].append(dof_id)
 
-						zind = zlen-2 if k==0 else k
-						zind = 1 if k==zlen-1 else zind
+					if x == 1 or y < 0 or y > 1:
+						if z>.5 and z<1:
+							xind = 0 if j==xlen-1 else j
+
+							yind = ylen-2 if i==0 else i
+							yind = 1 if i==ylen-1 else yind
 					
-						fill_id = zind*(xlen*ylen)+yind*(xlen)+j+self.n_coarse_dofs
-						
-						self.periodic.append([dof_id,fill_id,False])
+							fill_id = k*(xlen*ylen)+yind*(xlen)+xind+self.n_coarse_dofs
+							
+							self.periodic.append([dof_id,fill_id,z<.5+H or z>1-H])
 
 					dof_id += 1
 		self.dof_count = dof_id
 
 
-class HorizontalRefineSolver(Solver):
+class VerticalRefineSolver(Solver):
 	def __init__(self,N,u,f=None,qpn=5):
-		super().__init__(N,u,f,qpn,meshtype=HorizontalRefineMesh)
+		super().__init__(N,u,f,qpn,meshtype=VerticalRefineMesh)
 
 	def _setup_constraints(self): # overwritten
 		num_dofs = len(self.mesh.dofs)
@@ -123,36 +128,39 @@ class HorizontalRefineSolver(Solver):
 		c_inter = np.array(self.mesh.interface[0])
 		f_inter = np.array(self.mesh.interface[1])
 		for j in range(2):
-			self.Id[f_inter[j]] = 1
-			self.C_full[f_inter[j]] *= 0
 
-			nc = int(np.sqrt(c_inter[j].size))
-			nf = int(np.sqrt(f_inter[j].size))
+			cgrid = c_inter[j].reshape((2,self.N+2,self.N+1))
+			fgrid = f_inter[j].reshape((2,2*self.N+2,2*self.N+1))
 
-			cgrid = c_inter[j].reshape((nc,nc))
-			fgrid = f_inter[j].reshape((nf,nf))
 
-			frac = [.25,.75]
-			ends = [-1,None]
-			for csy in [0,1]:
-				for csz in [0,1]:
-					cinds = cgrid[csy:ends[csy],csz:ends[csz]]
-					for fsy in [0,1]:
-						for fsz in [0,1]:
-							finds = fgrid[fsy::2,fsz::2]
-							v = frac[csy==fsy]*frac[csz==fsz]
-							self.C_full[finds,cinds] = v
+			self.Id[fgrid[1-j].flatten()] = 1
+			self.C_full[fgrid[1-j].flatten()] *= 0
+			
+			self.C_full[fgrid[1-j],fgrid[j]] = -1
+			for k in range(2):
+				for i in range(2):
+					for l in range(2):
+						end = None if l else -1
+						val = 3/4 if i==l else 1/4
+						self.C_full[fgrid[1-j,i::2,::2],cgrid[k,l:end,:]] = val
+
+						for m in range(2):
+							endx = None if m else -1
+							self.C_full[fgrid[1-j,i::2,1::2],cgrid[k,l:end,m:endx]] = val/2
 
 		dL,DL,maskL = np.array(self.mesh.periodic).T
 		for (d,D,mask) in zip(dL,DL,maskL):
+			if self.Id[D]: 
+				dof = self.mesh.dofs[D]
+				print(dof.h==self.h,(dof.x,dof.y,dof.z),sep='\t')
 			self.Id[d] = 1
 			self.C_full[d,:] = self.C_full[D,:]
-			if mask:
+			if True:#mask:
 				self.C_full[:,D] += self.C_full[:,d]
 			self.C_full[:,d] *= 0
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
-		for dof_id in self.mesh.boundaries:
+		for dof_id in self.mesh.boundaries+list(dL):
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			dof = self.mesh.dofs[dof_id]
@@ -165,49 +173,6 @@ class HorizontalRefineSolver(Solver):
 	def vis_periodic(self,retfig=False):
 		fig = super().vis_periodic('horiz')
 		if retfig: return fig
-
-	def vis_constraints(self):
-		fig,ax = plt.subplots(1,2,figsize=(16,7))
-		markers = np.array([['s','^'],['v','o']])
-		cols = {1/16:'C0',3/16:'C1',9/16:'C2'}
-		flags = {1/16:False,3/16:False,9/16:False}
-		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16'}
-		for ind,b in enumerate(self.Id):
-			if b:
-				row = self.C_full[ind]
-				dof = self.mesh.dofs[ind]
-				x,y,z = dof.x,dof.y,dof.z
-				axind = int(x==.5)
-				if dof.h==self.h:
-					for cind,val in enumerate(row):
-						if abs(val)>1e-12:
-							cdof = self.mesh.dofs[cind]
-							cx,cy,cz = cdof.x,cdof.y,cdof.z
-							assert cx==x or x-1==cx
-							if cdof.h!=dof.h:
-								if cy-y > .5: ty=cy-1
-								elif y-cy>.5: ty=cy+1
-								else: ty=cy
-								if cz-z > .5: tz=cz-1
-								elif z-cz>.5: tz=cz+1
-								else: tz=cz
-								m = markers[int(ty==cy),int(tz==cz)]
-								ax[axind].scatter([y],[z],color='k',marker='o')
-								ax[axind].scatter([ty],[tz],color='k',marker=m)
-								if flags[val]==False:
-									ax[axind].plot([y,ty],[z,tz],color=cols[val],label=labs[val])
-									flags[val] = True
-								else:
-									ax[axind].plot([y,ty],[z,tz],color=cols[val])
-							else:
-								assert val==1
-							
-							
-					
-					
-		ax[1].legend()
-		plt.show()
-		return
 
 	def xy_to_e(self,x,y,z): # over_written
 		n_y_els = [self.N+1,self.N*2+1]
