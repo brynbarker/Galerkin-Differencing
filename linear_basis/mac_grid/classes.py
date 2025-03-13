@@ -165,7 +165,7 @@ class Mesh:
 	def _update_elements(self):
 		for e in self.elements:
 			e.update_dofs(self.dofs)
-
+	
 class Solver:
 	def __init__(self,N,u,f=None,qpn=5,meshtype=Mesh):
 		self.N = N
@@ -297,6 +297,61 @@ class Solver:
 		self.ufunc = u
 
 	def vis_constraints(self):
+		fig,ax = plt.subplots(2,3,figsize=(24,16))
+		markers = np.array([['s','^'],['v','o']])
+		cols = {1/8:'C0',3/8:'C1',-1:'C2',1/4:'C3',3/4:'C4'}
+		flags = {1/8:False,3/8:False,-1:False,1/4:False,3/4:False}
+		labs = {1/8:'1/8',3/8:'3/8',-1:'-1',1/4:'1/4',3/4:'3/4'}
+		axshow = []
+		for ind,b in enumerate(self.Id):
+			if b:
+				row = self.C_full[ind]
+				dof = self.mesh.dofs[ind]
+				x,y,z = dof.x,dof.y,dof.z
+				axind = int(z>.75)
+				if dof.h==self.h:
+					for cind,val in enumerate(row):
+						if abs(val)>1e-12:
+							cdof = self.mesh.dofs[cind]
+							cx,cy,cz = cdof.x,cdof.y,cdof.z
+							#ax2ind = [0,1,2] if ( cx==x or x-1==cx ) else []
+							if cdof.h!=dof.h or val==-1:
+								if cx-x > .5: tx=cx-1
+								elif x-cx>.5: tx=cx+1
+								else: tx=cx
+								if cy-y > .5: ty=cy-1
+								elif y-cy>.5: ty=cy+1
+								else: ty=cy
+								if cz-z > .5: tz=cz-1
+								elif z-cz>.5: tz=cz+1
+								else: tz=cz
+								
+								if tx == x: ax2 = 1
+								elif tx < x: ax2 = 0
+								else: ax2 = 2
+								#if 	cx < x: ax2ind.append(0)
+								#if cx > x: ax2ind.append(1)
+								m = markers[int(ty==cy),int(tz==cz)]
+								if True:#for ax2 in ax2ind:
+									ax[axind,ax2].scatter([y],[z],color='k',marker='o')
+									ax[axind,ax2].scatter([ty],[tz],color='k',marker=m)
+									if flags[val]==False:
+										ax[axind,ax2].plot([y,ty],[z,tz],color=cols[val],label=labs[val])
+										flags[val] = True
+										if [axind,ax2] not in axshow:
+											axshow.append([axind,ax2])
+									else:
+										ax[axind,ax2].plot([y,ty],[z,tz],color=cols[val])
+							else:
+								assert val==1
+							
+							
+					
+					
+		for inds in axshow:
+			ax[inds[0],inds[1]].legend()
+		plt.show()
+		return
 		if True:
 			fig,ax = plt.subplots(2,2)
 			for csy in [0,1]:
@@ -335,12 +390,14 @@ class Solver:
 		plt.show()
 		return
 
-	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False):
+	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None):
 		U = self.U_proj if proj else self.U_lap
-		x0,y0,z0,c0 = [], [], [], []
-		x1,y1,z1,c1 = [], [], [], []
+		U = myU if myU is not None else U
+		id0,x0,y0,z0,c0 = [],[], [], [], []
+		id1,x1,y1,z1,c1 = [],[], [], [], []
 		for dof in self.mesh.dofs.values():
 			if dof.h == self.h:
+				id1.append(dof.ID)
 				x1.append(dof.x)
 				y1.append(dof.y)
 				z1.append(dof.z)
@@ -350,6 +407,7 @@ class Solver:
 
 
 			else:
+				id0.append(dof.ID)
 				x0.append(dof.x)
 				y0.append(dof.y)
 				z0.append(dof.z)
@@ -362,6 +420,7 @@ class Solver:
 		if fltr:
 			mx = max(c0)
 			msk = np.array(c0)>fval*mx
+			id0 = np.array(id0)[msk]
 			x0 = np.array(x0)[msk]
 			y0 = np.array(y0)[msk]
 			z0 = np.array(z0)[msk]
@@ -371,12 +430,14 @@ class Solver:
 
 			mx = max(c1)
 			msk = np.array(c1)>fval*mx
+			id1 = np.array(id1)[msk]
 			x1 = np.array(x1)[msk]
 			y1 = np.array(y1)[msk]
 			z1 = np.array(z1)[msk]
 			c1 = np.array(c1)[msk]
 			vals = np.array([x1,y1,z1,c1]).T
 			if dsp:print(vals)
+			
 
 
 		fig = plt.figure(figsize=plt.figaspect(1))
@@ -396,6 +457,8 @@ class Solver:
 		ax.set_ylim(-1.5*self.h,1+1.5*self.h)
 		ax.set_zlim(-1.5*self.h,1+1.5*self.h)
 		plt.show()
+
+		if fltr and dsp: return id0,id1
 
 	def vis_dofs(self):
 		data = []
@@ -447,8 +510,8 @@ class Solver:
 			return val
 		return solution
 
-	def error(self,qpn=5,proj=False):
-		uh = self.sol(proj=proj)
+	def error(self,qpn=5,proj=False,weights=None):
+		uh = self.sol(proj=proj,weights=weights)
 			
 		l2_err = 0.
 		for e in self.mesh.elements:

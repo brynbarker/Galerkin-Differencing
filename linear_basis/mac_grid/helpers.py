@@ -35,7 +35,6 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 		h_ghosts = [fine_ghosts[0],fine_ghosts[1]]
 		v_ghosts = [fine_ghosts[2],fine_ghosts[3]]
 
-	#fig = plt.figure()
 	fig = plt.figure(figsize=(20,20))
 	h = dofs[0].h
 
