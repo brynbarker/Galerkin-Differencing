@@ -1,11 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from scipy import sparse
 from IPython.display import HTML
 
 from linear_basis.mac_grid.shape_functions import *
 
 #visualization helpers
+
+def indswap(l,i_old,i_new):
+	for (i,l_ind) in enumerate(l):
+		if l_ind == i_old:
+			l[i] = i_new
+	return l
+
+def inddel(r,c,d,ind):
+	n = len(r)
+	to_pop = [j for j in range(n) if r[j]==ind]
+	for j in to_pop[::-1]:
+		r.pop(j)
+		c.pop(j)
+		d.pop(j)
+	return r,c,d
 
 def c_map(v):
 	if v == 1:
@@ -41,7 +57,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	flags = {'C0':True,'C1':True,'C2':True,
 			 'C3':True,'C4':True,'C5':True,'k':True}
 	labels = {'C0':'1','C1':'1/4','C2':'1/2',
-              'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
+			  'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
 
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
@@ -158,46 +174,6 @@ def animate_2d(data,size,figsize=(10,10),yesdot=True):
 	return HTML(ani.to_html5_video())
 
 #integrators
-
-def get_phi_gauss(h,n):
-	[p,w] = np.polynomial.legendre.leggauss(n)
-	vals = {}
-	ind = 0
-	for y_shift in [0,-h]:
-		for x_shift in [0,-h]:
-			v = np.zeros((n,n))
-			for j in range(n):
-				for i in range(n):
-					v[j,i] = phi1_3d(h/2*p[j]+h/2+x_shift,h/2*p[i]+h/2+y_shift)
-			vals[ind] = v
-			ind += 1
-	return vals,p,w
-		
-
-def get_dphi_gauss(h,n):
-	[p,w] = np.polynomial.legendre.leggauss(n)
-	p = h/2*(p+1)
-	vals = {}
-	ind = 0
-	for y_shift in [0,-h]:
-		for x_shift in [0,-h]:
-			v = np.zeros((n,n))
-			for j in range(n):
-				for i in range(n):
-					v[j,i] = grad_phi1(p[j]+x_shift,p[i]+y_shift)
-			vals[ind] = v
-			ind += 1
-
-	return vals,p,w
-
-def fast_gauss(f,p,w,v,n):
-	outer = 0.
-	for j in range(n):
-		inner = 0.
-		for i in range(n):
-			inner += w[i]*f(p[j],p[i])*v[j,i]
-		outer += w[j]*inner
-	return outer*h*h/4
 
 def gauss(f,a,b,c,d,q,r,n):
 	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2
