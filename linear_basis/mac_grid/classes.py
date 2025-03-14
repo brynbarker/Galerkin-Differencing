@@ -194,17 +194,20 @@ class Solver:
 		F = np.zeros(num_dofs)
 		myfunc = self.ufunc if proj else self.ffunc
 
-		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
+		g_reg,g_interface,g_p,g_w = self.quad_vals
 
 		for e in self.mesh.elements:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			z0,z1 = e.dom[4]-e.z, e.dom[5]-e.z
+			func = lambda x,y,z: myfunc(x+e.x,y+e.y,z+e.z)
+			f_vals = gauss_vals(func,0,e.h,y0,y1,z0,z1,self.qpn,g_p)
 			for test_id,dof in enumerate(e.dof_list):
-				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y,z: phi1_3d_ref(x,y,z,e.h,test_ind)
-				func = lambda x,y,z: phi_test(x,y,z) * myfunc(x+e.x,y+e.y,z+e.z)
-				val = gauss(func,0,e.h,y0,y1,z0,z1,self.qpn)
-				F[dof.ID] += val
+				if e.interface:
+					phi_vals = g_interface[e.side][test_id]
+				else:
+					phi_vals = g_reg[test_id]
+				v = super_quick_gauss(f_vals,phi_vals,0,e.h,y0,y1,z0,z1,self.qpn,g_w)
+				F[dof.ID] += v
 		if proj:
 			self.F_proj = F
 		else:
@@ -525,12 +528,27 @@ class Solver:
 		return solution
 
 	def error(self,qpn=5,proj=False,weights=None):
-		uh = self.sol(proj=proj,weights=weights)
+		if weights is None:
+			assert self._solved
+			if proj:
+				assert self.U_proj is not None
+				weights = self.U_proj
+			else:
+				assert self.U_lap is not None
+				weights = self.U_lap
+		g_reg,g_interface,g_p,g_w = self.quad_vals
 			
 		l2_err = 0.
 		for e in self.mesh.elements:
-			func = lambda x,y,z: (self.ufunc(x,y,z)-uh(x,y,z,e))**2
+			uh_vals = 0
+			for local_id,dof in enumerate(e.dof_list):
+				if e.interface:
+					vals = g_interface[e.side][local_id]
+				else:
+					vals = g_reg[local_id]
+				uh_vals += weights[dof.ID]*vals
 			x0,x1,y0,y1,z0,z1 = e.dom
-			val = gauss(func,x0,x1,y0,y1,z0,z1,qpn)
-			l2_err += val
+			u_vals = gauss_vals(self.ufunc,x0,x1,y0,y1,z0,z1,self.qpn,g_p)
+			v = super_quick_gauss_error(u_vals,uh_vals,x0,x1,y0,y1,z0,z1,self.qpn,g_w)
+			l2_err += v
 		return np.sqrt(l2_err)
