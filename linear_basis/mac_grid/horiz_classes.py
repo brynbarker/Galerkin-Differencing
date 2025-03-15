@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+from scipy import sparse
 
 from linear_basis.mac_grid.classes import Node, Element, Mesh, Solver
-from linear_basis.mac_grid.helpers import vis_constraints
+from linear_basis.mac_grid.helpers import vis_constraints, indswap, inddel 
 
 
 class HorizontalRefineMesh(Mesh):
@@ -38,11 +39,10 @@ class HorizontalRefineMesh(Mesh):
 						if zinterface_element: element.set_interface(zside)
 						e_id += 1
 				
-					if x==2*H:
+					if x==H:
 						self.boundaries.append(dof_id)
 
 					if y < 0 or y > 1 or z < 0 or z > 1:
-						#self.boundaries.append(dof_id)
 						yind = ylen-2 if i==0 else i
 						yind = 1 if i==ylen-1 else yind
 
@@ -92,6 +92,7 @@ class HorizontalRefineMesh(Mesh):
 						
 						e_id += 1
 
+
 					if (x == 0.5 or x==1.):
 						self.interface[1][x==.5].append(dof_id)
 
@@ -117,14 +118,14 @@ class HorizontalRefineSolver(Solver):
 	def _setup_constraints(self): # overwritten
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
-		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
+
+		Cr, Cc, Cd = [],[],[]
 
 		c_inter = np.array(self.mesh.interface[0])
 		f_inter = np.array(self.mesh.interface[1])
 		for j in range(2):
 			self.Id[f_inter[j]] = 1
-			self.C_full[f_inter[j]] *= 0
 
 			nc = int(np.sqrt(c_inter[j].size))
 			nf = int(np.sqrt(f_inter[j].size))
@@ -141,71 +142,136 @@ class HorizontalRefineSolver(Solver):
 						for fsz in [0,1]:
 							finds = fgrid[fsy::2,fsz::2]
 							v = frac[csy==fsy]*frac[csz==fsz]
-							self.C_full[finds,cinds] = v
+							Cr += list(finds.flatten())
+							Cc += list(cinds.flatten())
+							Cd += [v]*finds.size
 
 		dL,DL,maskL = np.array(self.mesh.periodic).T
 		for (d,D,mask) in zip(dL,DL,maskL):
-			self.Id[d] = 1
-			self.C_full[d,:] = self.C_full[D,:]
 			if mask:
-				self.C_full[:,D] += self.C_full[:,d]
-			self.C_full[:,d] *= 0
+				Cc = indswap(Cc,d,D)
 
-		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
+		for (d,D,mask) in zip(dL,DL,maskL):
+			self.Id[d] = 1
+			Cr.append(d)
+			Cc.append(D)
+			Cd.append(1.)
+
 		for dof_id in self.mesh.boundaries:
-			self.C_full[dof_id] *= 0
+			Cr,Cc,Cd = inddel(Cr,Cc,Cd,dof_id)
+			assert dof_id not in Cr
 			self.Id[dof_id] = 1.
 			dof = self.mesh.dofs[dof_id]
 			x,y,z = dof.x,dof.y,dof.z
 			self.dirichlet[dof_id] = self.ufunc(x,y,z)
 
 		self.true_dofs = list(np.where(self.Id==0)[0])
-		self.C = self.C_full[:,self.true_dofs]
+
+		for true_ind in self.true_dofs:
+			if true_ind not in self.mesh.boundaries:
+				Cr.append(true_ind)
+				Cc.append(true_ind)
+				Cd.append(1.)
+
+		self.spC_full = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_dofs))
+		c_data = {}
+		for i,r in enumerate(self.spC_full.row):
+			tup = (self.spC_full.col[i],self.spC_full.data[i])
+			if r in c_data.keys():
+				c_data[r].append(tup)
+			else:
+				c_data[r] = [tup]
+		self.C_full = c_data
+
+		Cc_array = np.array(Cc)
+		masks = []
+		for true_dof in self.true_dofs:
+			masks.append(Cc_array==true_dof)
+		for j,mask in enumerate(masks):
+			Cc_array[mask] = j
+		Cc = list(Cc_array)
+
+		num_true = len(self.true_dofs)
+		self.spC = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_true)).tocsc()
 
 	def vis_periodic(self,retfig=False):
-		fig = super().vis_periodic('horiz')
+		fig,ax = plt.subplots(1,2,figsize=(16,7))
+		markers = np.array([['s','<'],['^','o']])
+		colors = {1/16:'C0',3/16:'C1',9/16:'C2'}
+		flags = {1/16:False,3/16:False,9/16:False}
+		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16'}
+		for g_id in self.C_full:#c_data:
+			if len(self.C_full[g_id]) == 1:
+				g_dof = self.mesh.dofs[g_id]
+				axind = int(self.h==g_dof.h)
+				x,y,z = g_dof.x,g_dof.y,g_dof.z
+				for t_id,val in self.C_full[g_id]:
+					if g_id!=t_id:
+						t_dof = self.mesh.dofs[t_id]
+						assert t_dof.h==g_dof.h
+						assert val == 1
+						tx,ty,tz = t_dof.x,t_dof.y,t_dof.z
+						assert tx==x
+						m = markers[int(ty==y),int(tz==z)]
+						if y==ty:
+							yshft = self.h/10 if tz>z else -self.h/10
+						else:
+							yshft = 0
+						if z==tz:
+							zshft = self.h/10 if ty>y else -self.h/10
+						else:
+							zshft = 0
+						ax[axind].scatter([y+yshft],[z+zshft],color='k',marker=m)
+						ax[axind].scatter([ty+yshft],[tz+zshft],color='k',marker='o')
+						ax[axind].plot([y+yshft,ty+yshft],[z+zshft,tz+zshft])#,color=colors[val])
+		ax[0].set_title('x = 0')
+		ax[0].set_ylabel('z')
+		ax[0].set_xlabel('y')
+		ax[1].set_title('x = .5')
+		ax[1].set_ylabel('z')
+		ax[1].set_xlabel('y')
 		if retfig: return fig
+		plt.show()
+		return
 
 	def vis_constraints(self):
 		fig,ax = plt.subplots(1,2,figsize=(16,7))
 		markers = np.array([['s','^'],['v','o']])
-		cols = {1/16:'C0',3/16:'C1',9/16:'C2'}
+		colors = {1/16:'C0',3/16:'C1',9/16:'C2'}
 		flags = {1/16:False,3/16:False,9/16:False}
 		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16'}
-		for ind,b in enumerate(self.Id):
-			if b:
-				row = self.C_full[ind]
-				dof = self.mesh.dofs[ind]
-				x,y,z = dof.x,dof.y,dof.z
+		for g_id in self.C_full:#c_data:
+			if len(self.C_full[g_id]) > 1:
+				g_dof = self.mesh.dofs[g_id]
+				assert self.h==g_dof.h
+				x,y,z = g_dof.x,g_dof.y,g_dof.z
 				axind = int(x==.5)
-				if dof.h==self.h:
-					for cind,val in enumerate(row):
-						if abs(val)>1e-12:
-							cdof = self.mesh.dofs[cind]
-							cx,cy,cz = cdof.x,cdof.y,cdof.z
-							assert cx==x or x-1==cx
-							if cdof.h!=dof.h:
-								if cy-y > .5: ty=cy-1
-								elif y-cy>.5: ty=cy+1
-								else: ty=cy
-								if cz-z > .5: tz=cz-1
-								elif z-cz>.5: tz=cz+1
-								else: tz=cz
-								m = markers[int(ty==cy),int(tz==cz)]
-								ax[axind].scatter([y],[z],color='k',marker='o')
-								ax[axind].scatter([ty],[tz],color='k',marker=m)
-								if flags[val]==False:
-									ax[axind].plot([y,ty],[z,tz],color=cols[val],label=labs[val])
-									flags[val] = True
-								else:
-									ax[axind].plot([y,ty],[z,tz],color=cols[val])
-							else:
-								assert val==1
-							
-							
+				for t_id,val in self.C_full[g_id]:
+					t_dof = self.mesh.dofs[t_id]
+					assert t_dof.h!=self.h
+					cx,cy,cz = t_dof.x,t_dof.y,t_dof.z
+					if cy-y > .5: ty=cy-1
+					elif y-cy>.5: ty=cy+1
+					else: ty=cy
+					if cz-z > .5: tz=cz-1
+					elif z-cz>.5: tz=cz+1
+					else: tz=cz
+					m = markers[int(ty==cy),int(tz==cz)]
+					ax[axind].scatter([y],[z],color='k',marker='o')
+					ax[axind].scatter([ty],[tz],color='k',marker=m)
+					if flags[val]==False:
+						ax[axind].plot([y,ty],[z,tz],color=colors[val],label=labs[val])
+						flags[val] = True
+					else:
+						ax[axind].plot([y,ty],[z,tz],color=colors[val])
 					
-					
-		ax[1].legend()
+		ax[0].set_title('coarse')
+		ax[0].set_ylabel('z')
+		ax[0].set_xlabel('y')
+		ax[1].set_title('fine')
+		ax[1].set_ylabel('z')
+		ax[1].set_xlabel('y')
+		ax[0].legend()
 		plt.show()
 		return
 

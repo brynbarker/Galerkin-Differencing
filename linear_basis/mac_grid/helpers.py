@@ -1,11 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from scipy import sparse
 from IPython.display import HTML
 
 from linear_basis.mac_grid.shape_functions import *
 
 #visualization helpers
+
+def indswap(l,i_old,i_new):
+	for (i,l_ind) in enumerate(l):
+		if l_ind == i_old:
+			l[i] = i_new
+	return l
+
+def inddel(r,c,d,ind):
+	n = len(r)
+	to_pop = [j for j in range(n) if r[j]==ind]
+	for j in to_pop[::-1]:
+		r.pop(j)
+		c.pop(j)
+		d.pop(j)
+	return r,c,d
 
 def c_map(v):
 	if v == 1:
@@ -41,7 +57,7 @@ def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
 	flags = {'C0':True,'C1':True,'C2':True,
 			 'C3':True,'C4':True,'C5':True,'k':True}
 	labels = {'C0':'1','C1':'1/4','C2':'1/2',
-              'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
+			  'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
 
 	for i,scale in enumerate([1,-1]):
 		for ind in h_ghosts[i]:
@@ -159,45 +175,80 @@ def animate_2d(data,size,figsize=(10,10),yesdot=True):
 
 #integrators
 
-def get_phi_gauss(h,n):
-	[p,w] = np.polynomial.legendre.leggauss(n)
-	vals = {}
-	ind = 0
-	for y_shift in [0,-h]:
-		for x_shift in [0,-h]:
-			v = np.zeros((n,n))
-			for j in range(n):
-				for i in range(n):
-					v[j,i] = phi1_3d(h/2*p[j]+h/2+x_shift,h/2*p[i]+h/2+y_shift)
-			vals[ind] = v
-			ind += 1
-	return vals,p,w
+def get_all_gauss(qpn,x0,x1,y0,y1,z0,z1,p):
+	id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
+	val_list = []
+	for test_id in range(8):
+		test_ind = id_to_ind[test_id]
+		phi_test = lambda x,y,z: phi1_3d_ref(x,y,z,1,test_ind)
+		vals = gauss_vals(phi_test,x0,x1,y0,y1,z0,z1,qpn,p)
+		val_list.append(vals)
+	return val_list
 		
+def compute_gauss(qpn):	
+	[p,w] = np.polynomial.legendre.leggauss(qpn)
+	reg = get_all_gauss(qpn,0,1,0,1,0,1,p)
+	interface = []
+	doms = [[1],[0],[3],[2],[1,3],[1,2],[0,3],[0,2]]
+	for dom_change in doms:
+		dom = [0,1,0,1]
+		for d in dom_change:
+			dom[d] = .5
+		y0,y1,z0,z1 = dom
+		vals = get_all_gauss(qpn,0,1,y0,y1,z0,z1,p)
+		interface.append(vals)
+	return reg,interface,p,w
 
-def get_dphi_gauss(h,n):
-	[p,w] = np.polynomial.legendre.leggauss(n)
-	p = h/2*(p+1)
-	vals = {}
-	ind = 0
-	for y_shift in [0,-h]:
-		for x_shift in [0,-h]:
-			v = np.zeros((n,n))
-			for j in range(n):
-				for i in range(n):
-					v[j,i] = grad_phi1(p[j]+x_shift,p[i]+y_shift)
-			vals[ind] = v
-			ind += 1
-
-	return vals,p,w
-
-def fast_gauss(f,p,w,v,n):
+def gauss_vals(f,a,b,c,d,q,r,n,p):
+	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2
+	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
+	vals = np.zeros((n,n,n))
 	outer = 0.
 	for j in range(n):
-		inner = 0.
 		for i in range(n):
-			inner += w[i]*f(p[j],p[i])*v[j,i]
-		outer += w[j]*inner
-	return outer*h*h/4
+			for k in range(n):
+				vals[i,j,k] = f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
+	return vals  
+
+def super_quick_gauss(vals0,vals1,a,b,c,d,q,r,n,w):
+	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
+	outer = 0.
+	for j in range(n):
+		middle = 0.
+		for i in range(n):
+			inner = 0.
+			for k in range(n):
+				inner += w[k]*vals0[i,j,k]*vals1[i,j,k]
+			middle += w[i]*inner
+		outer += w[j]*middle
+	return outer*xscale*yscale*zscale
+	
+def super_quick_gauss_error(vals0,vals1,a,b,c,d,q,r,n,w):
+	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
+	outer = 0.
+	for j in range(n):
+		middle = 0.
+		for i in range(n):
+			inner = 0.
+			for k in range(n):
+				inner += w[k]*(vals0[i,j,k]-vals1[i,j,k])**2
+			middle += w[i]*inner
+		outer += w[j]*middle
+	return outer*xscale*yscale*zscale
+
+def quick_gauss(f,vals,a,b,c,d,q,r,n,p,w):
+	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2
+	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
+	outer = 0.
+	for j in range(n):
+		middle = 0.
+		for i in range(n):
+			inner = 0.
+			for k in range(n):
+				inner += w[k]*f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)*vals[i,j,k]
+			middle += w[i]*inner
+		outer += w[j]*middle
+	return outer*xscale*yscale*zscale
 
 def gauss(f,a,b,c,d,q,r,n):
 	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2

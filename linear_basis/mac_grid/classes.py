@@ -185,33 +185,38 @@ class Solver:
 		self._solved = False
 
 		self._setup_constraints()
-		self.spC = sparse.csc_matrix(self.C)
+		self.quad_vals = compute_gauss(qpn)
+		self.spM = None
+		self.spK = None
 
 	def _build_force(self,proj=False):
 		num_dofs = len(self.mesh.dofs)
 		F = np.zeros(num_dofs)
 		myfunc = self.ufunc if proj else self.ffunc
 
-		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
+		g_reg,g_interface,g_p,g_w = self.quad_vals
 
 		for e in self.mesh.elements:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			z0,z1 = e.dom[4]-e.z, e.dom[5]-e.z
+			func = lambda x,y,z: myfunc(x+e.x,y+e.y,z+e.z)
+			f_vals = gauss_vals(func,0,e.h,y0,y1,z0,z1,self.qpn,g_p)
 			for test_id,dof in enumerate(e.dof_list):
-				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y,z: phi1_3d_ref(x,y,z,e.h,test_ind)
-				func = lambda x,y,z: phi_test(x,y,z) * myfunc(x+e.x,y+e.y,z+e.z)
-				val = gauss(func,0,e.h,y0,y1,z0,z1,self.qpn)
-
-				F[dof.ID] += val
+				if e.interface:
+					phi_vals = g_interface[e.side][test_id]
+				else:
+					phi_vals = g_reg[test_id]
+				v = super_quick_gauss(f_vals,phi_vals,0,e.h,y0,y1,z0,z1,self.qpn,g_w)
+				F[dof.ID] += v
 		if proj:
 			self.F_proj = F
 		else:
 			self.F = F
 
 	def _build_stiffness(self):
+		if self.spK is not None: return
 		num_dofs = len(self.mesh.dofs)
-		self.K = np.zeros((num_dofs,num_dofs))
+		Kr, Kc, Kd = [],[],[]
 
 		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
 		
@@ -230,15 +235,18 @@ class Solver:
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 2
 			for test_id,dof in enumerate(e.dof_list):
+				Kr += [dof.ID]*len(e.dof_ids)
+				Kc += e.dof_ids
 				if e.interface:
-					self.K[dof.ID,e.dof_ids] += interface_k[e.side][test_id]*scale
+					Kd += list(interface_k[e.side][test_id]*scale)
 				else:
-					self.K[dof.ID,e.dof_ids] += base_k[test_id]*scale
-		self.spK = sparse.csc_matrix(self.K)
+					Kd += list(base_k[test_id]*scale)
+		self.spK = sparse.coo_array((Kd,(Kr,Kc)),shape=(num_dofs,num_dofs)).tocsc()
 
 	def _build_mass(self):
+		if self.spM is not None: return
 		num_dofs = len(self.mesh.dofs)
-		self.M = np.zeros((num_dofs,num_dofs))
+		Mr, Mc, Md = [],[],[]
 
 		id_to_ind = {ID:[int(ID/2)%2,ID%2,int(ID/4)] for ID in range(8)}
 
@@ -257,16 +265,21 @@ class Solver:
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 8
 			for test_id,dof in enumerate(e.dof_list):
+				Mr += [dof.ID]*len(e.dof_ids)
+				Mc += e.dof_ids
 				if e.interface:
-					self.M[dof.ID,e.dof_ids] += interface_m[e.side][test_id]*scale
+					Md += list(interface_m[e.side][test_id]*scale)
 				else:
-					self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
-		self.spM = sparse.csc_matrix(self.M)
+					Md += list(base_m[test_id]*scale)
+		#Mr,Mc,Md = shorten(Mr,Mc,Md)
+		self.spM = sparse.coo_array((Md,(Mr,Mc)),shape=(num_dofs,num_dofs)).tocsc()
+		#self.spM = sparse.csc_matrix((Md,(Mr,Mc)),shape=(num_dofs,num_dofs))
+		#self.spM = sparse.csc_matrix(self.M)
 
 	def projection(self):
 		self._build_mass()
 		self._build_force(proj=True)
-		LHS = self.spC.T * self.spM * self.spC
+		LHS = self.spC.T @ self.spM @ self.spC
 		RHS = self.spC.T.dot(self.F_proj - self.spM.dot(self.dirichlet))
 		x_proj,conv = sla.cg(LHS,RHS,rtol=1e-14)
 		assert conv==0
@@ -275,9 +288,9 @@ class Solver:
 		return x_proj
 
 	def laplace(self):
+		self._build_stiffness()
 		if self.ffunc is None:
 			raise ValueError('f not set, call .add_force(func)')
-		self._build_stiffness()
 		self._build_force()
 		LHS = self.spC.T * self.spK * self.spC
 		RHS = self.spC.T.dot(self.F - self.spK.dot( self.dirichlet))
@@ -295,6 +308,13 @@ class Solver:
 
 	def add_field(self,u):
 		self.ufunc = u
+		self._update_dirichlet()
+
+	def _update_dirichlet(self):
+		for dof_id in self.mesh.boundaries:
+			dof = self.mesh.dofs[dof_id]
+			x,y,z = dof.x,dof.y,dof.z
+			self.dirichlet[dof_id] = self.ufunc(x,y,z)
 
 	def vis_constraints(self):
 		fig,ax = plt.subplots(2,3,figsize=(24,16))
@@ -314,7 +334,6 @@ class Solver:
 						if abs(val)>1e-12:
 							cdof = self.mesh.dofs[cind]
 							cx,cy,cz = cdof.x,cdof.y,cdof.z
-							#ax2ind = [0,1,2] if ( cx==x or x-1==cx ) else []
 							if cdof.h!=dof.h or val==-1:
 								if cx-x > .5: tx=cx-1
 								elif x-cx>.5: tx=cx+1
@@ -329,8 +348,6 @@ class Solver:
 								if tx == x: ax2 = 1
 								elif tx < x: ax2 = 0
 								else: ax2 = 2
-								#if 	cx < x: ax2ind.append(0)
-								#if cx > x: ax2ind.append(1)
 								m = markers[int(ty==cy),int(tz==cz)]
 								if True:#for ax2 in ax2ind:
 									ax[axind,ax2].scatter([y],[z],color='k',marker='o')
@@ -511,12 +528,27 @@ class Solver:
 		return solution
 
 	def error(self,qpn=5,proj=False,weights=None):
-		uh = self.sol(proj=proj,weights=weights)
+		if weights is None:
+			assert self._solved
+			if proj:
+				assert self.U_proj is not None
+				weights = self.U_proj
+			else:
+				assert self.U_lap is not None
+				weights = self.U_lap
+		g_reg,g_interface,g_p,g_w = self.quad_vals
 			
 		l2_err = 0.
 		for e in self.mesh.elements:
-			func = lambda x,y,z: (self.ufunc(x,y,z)-uh(x,y,z,e))**2
+			uh_vals = 0
+			for local_id,dof in enumerate(e.dof_list):
+				if e.interface:
+					vals = g_interface[e.side][local_id]
+				else:
+					vals = g_reg[local_id]
+				uh_vals += weights[dof.ID]*vals
 			x0,x1,y0,y1,z0,z1 = e.dom
-			val = gauss(func,x0,x1,y0,y1,z0,z1,qpn)
-			l2_err += val
+			u_vals = gauss_vals(self.ufunc,x0,x1,y0,y1,z0,z1,self.qpn,g_p)
+			v = super_quick_gauss_error(u_vals,uh_vals,x0,x1,y0,y1,z0,z1,self.qpn,g_w)
+			l2_err += v
 		return np.sqrt(l2_err)
