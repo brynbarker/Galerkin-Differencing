@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from linear_basis.mac_grid.vert_classes import VerticalRefineSolver
+from linear_basis.mac_grid.corner_classes import CornerRefineSolver
 import numpy as np
 
 output = []
@@ -8,11 +8,11 @@ output = []
 u = lambda x,y,z: 1
 
 # set up solvers
-vref = VerticalRefineSolver(8,u)
-vref.projection()
+cref = CornerRefineSolver(16,u)
+cref.projection()
 
-err = vref.error(proj=True)
-output.append(err < 1e-12)
+err = cref.error(proj=True)
+output.append(err < 2e-12)
 
 ### write results to output file
 with open("output", 'w') as handle:

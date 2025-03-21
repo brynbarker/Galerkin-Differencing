@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from linear_basis.mac_grid.horiz_classes import VerticalRefineSolver
+from linear_basis.mac_grid.vert_classes import VerticalRefineSolver
 import numpy as np
 
 output = []

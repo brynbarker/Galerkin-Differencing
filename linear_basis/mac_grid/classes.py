@@ -58,7 +58,7 @@ KY_add = np.array([[ 0., -1.,  0.,  0., -1.,  0.,  0.,  0.],
                    [ 0.,  0.,  0.,  1.,  0.,  0.,  1.,  0.]])/3/16
 
 class Node:
-	def __init__(self,ID,j,i,k,x,y,z,h):
+	def __init__(self,ID,j,i,k,x,y,z,h,patch=None):
 		self.ID = ID
 		self.j = j
 		self.i = i
@@ -68,6 +68,7 @@ class Node:
 		self.z = z
 		self.h = h
 		self.elements = {}
+		self.patch = patch
 
 	def add_element(self,e):
 		if e.ID not in self.elements.keys():
@@ -292,7 +293,7 @@ class Solver:
 		if self.ffunc is None:
 			raise ValueError('f not set, call .add_force(func)')
 		self._build_force()
-		LHS = self.spC.T * self.spK * self.spC
+		LHS = self.spC.T @ self.spK @ self.spC
 		RHS = self.spC.T.dot(self.F - self.spK.dot( self.dirichlet))
 		x_lap,conv = sla.cg(LHS,RHS,rtol=1e-14)
 		assert conv==0
