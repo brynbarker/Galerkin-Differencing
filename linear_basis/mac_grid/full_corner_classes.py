@@ -37,7 +37,7 @@ class FullCornerRefinementMesh(Mesh):
 				yinterface_element = (i==0 or i==ylen-2)
 				yside = i==0
 				for j,x in enumerate(xdom):
-					self.dofs[dof_id] = Node(dof_id,j,i,k,x,y,z,H)
+					self.dofs[dof_id] = Node(dof_id,j,i,k,x,y,z,H,'b')
 
 					if (x<1) and (y<1) and (z<.5):
 						strt = dof_id
@@ -71,6 +71,7 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		print(dof_id)
 
 
 	def _make_q0(self): #coarse
@@ -114,6 +115,7 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		print(dof_id)
 
 	def _make_q1(self): #coarse
 		self.interface[1] = [[],[],[],[],[],[]]
@@ -156,6 +158,7 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		print(dof_id)
 
 	def _make_q2(self):
 		self.interface[2] = [[],[],[],[],[],[]]
@@ -198,6 +201,7 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
+		print(dof_id)
 
 	def _make_q3(self):
 		self.interface[3] = [[],[],[],[],[],[]]
@@ -237,8 +241,9 @@ class FullCornerRefinementMesh(Mesh):
 						self.interface[3][2+(y>1-H)].append(dof_id)
 			
 
-					elif z < .5+H or z > 1-H:
-						self.interface[3][4+(z>1-H)].append(dof_id)
+					if z < .5+H or z > 1-H:
+						if (x!=.5 and x!=1 and y>.5 and y<1):
+							self.interface[3][4+(z>1-H)].append(dof_id)
 
 					dof_id += 1
 
@@ -289,11 +294,11 @@ class FullCornerRefineSolver(Solver):
 			cgrid = np.array(q1[2+j]).reshape((-1,2,int(self.N/2)+1))
 			fgrid = np.array(q3[3-j]).reshape((-1,2,self.N-1))
 
-			self.Id[fgrid[:,j,:].flatten()] = 1
-			mymap[fgrid[:,j,:].flatten()] = -1
+			self.Id[fgrid[:,1-j,:].flatten()] = 1
+			mymap[fgrid[:,1-j,:].flatten()] = -1
 			
-			findsa = fgrid[:,j,:]
-			findsb = fgrid[:,1-j,:]
+			findsa = fgrid[:,1-j,:]
+			findsb = fgrid[:,j,:]
 			Cr += list(findsa.flatten())
 			Cc += list(findsb.flatten())
 			Cd += [-1]*findsa.size
@@ -303,7 +308,7 @@ class FullCornerRefineSolver(Solver):
 					for l in range(2):
 						end = None if l else -1
 						val = 3/4 if i==l else 1/4
-						finds0 = fgrid[i::2,j,1::2]
+						finds0 = fgrid[i::2,1-j,1::2]
 						cinds0 = cgrid[l:end,k,1:-1]
 
 
@@ -313,7 +318,7 @@ class FullCornerRefineSolver(Solver):
 
 						for m in range(2):
 							endx = None if m else -1
-							finds1 = fgrid[i::2,j,::2]
+							finds1 = fgrid[i::2,1-j,::2]
 							cinds1 = cgrid[l:end,k,m:endx]
 							Cr += list(finds1.flatten())
 							Cc += list(cinds1.flatten())
@@ -322,8 +327,9 @@ class FullCornerRefineSolver(Solver):
 		# refinement at (z = .5 or z = 0)
 		for j in range(2):
 			full_cgrid = np.array(qb[j]).reshape((2,self.N+2,self.N+1))
-			cgrid = full_cgrid[:,int(self.N/2)+1:-1,int(self.N/2):]
-			fgrid = np.array(q3[5-j]).reshape((2,self.N-2,self.N-1))
+			cgrid = full_cgrid[:,int(self.N/2):-1,int(self.N/2):]
+			fgrid = np.array(q3[5-j]).reshape((2,self.N,self.N-1))
+			print(cgrid.shape,fgrid.shape)
 
 			self.Id[fgrid[1-j].flatten()] = 1
 			mymap[fgrid[1-j].flatten()] = -1
@@ -334,31 +340,37 @@ class FullCornerRefineSolver(Solver):
 			Cc += list(findsb.flatten())
 			Cd += [-1]*findsa.size
 
-			for k in range(2):
-				for i in range(2):
-					for l in range(2):
-						end = None if l else -1
-						val = 3/4 if i==l else 1/4
-						finds0 = fgrid[1-j,i::2,1::2]
-						cinds0 = cgrid[k,l:end,1:-1]
+
+			for zlevel in range(2):
+				val1 = 3/4 if j!=zlevel else 1/4
+				for cystart in range(2):
+					val0 = 3/4 if cystart else 1/4
+					end = None if cystart else -1
+					for fystart in range(2):
+						finds0 = fgrid[1-j,fystart::2,1::2]
+						cinds0 = cgrid[zlevel,cystart:end,1:-1]
+						val = val0*val1
 
 						Cr += list(finds0.flatten())
 						Cc += list(cinds0.flatten())
 						Cd += [val]*finds0.size
 
-						for m in range(2):
-							endx = None if m else -1
-							finds1 = fgrid[1-j,i::2,::2]
-							cinds1 = cgrid[k,l:end,m:endx]
+
+						for cxstart in range(2):
+							endx = None if cxstart else -1
+							finds1 = fgrid[1-j,fystart::2,::2]
+							cinds1 = cgrid[zlevel,cystart:end,cxstart:endx]
 							Cr += list(finds1.flatten())
 							Cc += list(cinds1.flatten())
 							Cd += [val/2]*finds1.size
 
-
 		# same level along x axis
+		sqr = int(self.N/2)+2
 		for pair in [(q0[0],q1[1]),(q1[0],q0[1])]:
 			# lower case are ghosts, upper case are true dofs
-			B0,t0 = np.array(pair[0]+pair[1]).reshape((2,-1))#-1,2)).T
+			B0 = np.array(pair[0]).reshape((sqr,sqr))[1:-1,1:-1].flatten()
+			t0 = np.array(pair[1]).reshape((sqr,sqr))[1:-1,1:-1].flatten()
+			#B0,t0 = np.array(pair[0]+pair[1]).reshape((2,-1))#-1,2)).T
 			ghost_list = np.array(t0)
 			self.mesh.periodic_ghost.append(ghost_list)
 			for (D,d) in zip(B0,t0):
@@ -369,10 +381,10 @@ class FullCornerRefineSolver(Solver):
 		xlen = int(self.N/2)+1
 		for pair in [(q0[2],q2[3]),(q2[2],q0[3])]:
 			tmp = np.array(pair[0]).reshape((-1,2,xlen)).copy()
-			b0, B1 = tmp[:,0,:].flatten(),tmp[:,1,:].flatten()
+			b0, B1 = tmp[1:-1,0,:].flatten(),tmp[1:-1,1,:].flatten()
 
 			tmp = np.array(pair[1]).reshape((-1,2,xlen)).copy()
-			T0, t1 = tmp[:,0,:].flatten(),tmp[:,1,:].flatten()
+			T0, t1 = tmp[1:-1,0,:].flatten(),tmp[1:-1,1,:].flatten()
 
 			ghost_list = np.hstack((b0,t1))
 			self.mesh.periodic_ghost.append(ghost_list)
@@ -382,6 +394,16 @@ class FullCornerRefineSolver(Solver):
 					mymap[mymap==g] = mymap[t]
 			self.Id[ghost_list] = 1.
 
+		# corners
+		ylen = int(self.N/2)+2
+		pairs = [(q1[0][ylen-1::ylen],q2[1][1::ylen]),(q2[1][::ylen],q1[0][ylen-2::ylen]),
+				 (q1[0][::ylen],q2[1][ylen-2::ylen]),(q2[1][ylen-1::ylen],q1[0][1::ylen])]
+		for (gs,ts) in pairs:
+			self.Id[gs] = 1
+			for g,t in zip(gs,ts):
+				mymap[mymap==g] = mymap[t]
+
+						
 		# same level along z axis
 		for j in range(2):
 			full_cgrid = np.array(qb[j]).reshape((2,self.N+2,self.N+1))
@@ -395,18 +417,15 @@ class FullCornerRefineSolver(Solver):
 			for pair in [(b0,cq0),(b1,cq1),(b2,cq2)]:
 				true_list = np.hstack((pair[1-j][j].flatten(),pair[j][1-j].flatten()))
 				ghost_list = np.hstack((pair[j][j].flatten(),pair[1-j][1-j].flatten()))
+				if j:
+					tmp = true_list.copy()
+					true_list = ghost_list.copy()
+					ghost_list = tmp.copy()
+					tmp = None
 				self.Id[ghost_list] = 1
 				for (g,t) in zip(ghost_list,true_list):
+					gdof,tdof = self.mesh.dofs[g],self.mesh.dofs[t]
 					mymap[mymap==g] = mymap[t]
-		
-		# corners
-		ylen = int(self.N/2)+2
-		pairs = [(q1[0][ylen-1::ylen],q2[1][1::ylen]),(q2[1][::ylen],q1[0][ylen-2::ylen]),
-				 (q1[0][::ylen],q2[1][ylen-2::ylen]),(q2[1][ylen-1::ylen],q1[0][1::ylen])]
-		for (gs,ts) in pairs:
-			self.Id[gs] = 1
-			for g,t in zip(gs,ts):
-				mymap[mymap==g] = mymap[t]
 
 		dL,DL,maskL = np.array(self.mesh.periodic).T
 		self.Id[dL] = 1
@@ -426,6 +445,7 @@ class FullCornerRefineSolver(Solver):
 		assert np.allclose(mymap[self.true_dofs],self.true_dofs)
 		self.mymap = mymap
 
+
 		Cr,Cc,Cd,Cc_small = full_swap_and_set(Cr,Cc,Cd,mymap,self.true_dofs)
 
 		spC_full = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_dofs))
@@ -438,6 +458,7 @@ class FullCornerRefineSolver(Solver):
 				c_data[r] = [tup]
 		self.C_full = c_data
 
+		return
 		num_true = len(self.true_dofs)
 		self.spC = sparse.coo_array((Cd,(Cr,Cc_small)),shape=(num_dofs,num_true)).tocsc()
 
@@ -465,9 +486,9 @@ class FullCornerRefineSolver(Solver):
 	def vis_constraints(self,retfig=False):
 		fig,ax = plt.subplots(2,4,figsize=(10,14),gridspec_kw={'width_ratios': [2.5, 1, 1, 1]})
 		markers = np.array([['s','^'],['v','o']])
-		colors = {1/16:'C0',3/16:'C1',9/16:'C2',1/8:'C3',3/8:'C4',-1:'C5',1/4:'C6',3/4:'C7'}
-		flags = {1/16:False,3/16:False,9/16:False,1/8:False,3/8:False,-1:False,1/4:False,3/4:False}
-		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16',1/8:'1/8',3/8:'3/8',-1:'-1',1/4:'1/4',3/4:'3/4'}
+		colors = {1/16:'C0',3/16:'C1',9/16:'C2',1/32:'C3',3/32:'C4',9/32:'C8',-1:'C5',1/4:'C6',3/4:'C7'}
+		flags = {1/16:False,3/16:False,9/16:False,1/32:False,3/32:False,9/32:False,-1:False,1/4:False,3/4:False}
+		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16',1/832:'1/32',3/32:'3/32',9/32:'9/32',-1:'-1',1/4:'1/4',3/4:'3/4'}
 		axshow = []
 		for g_id in self.C_full:#c_data:
 			if len(self.C_full[g_id]) > 1:
