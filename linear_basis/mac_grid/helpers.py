@@ -8,6 +8,14 @@ from linear_basis.mac_grid.shape_functions import *
 
 #visualization helpers
 
+def add_constraint(r,c,d,newr,newc,newdval):
+	if not isinstance(newr,list):
+		newr = list(newr.flatten())	
+	if not isinstance(newc,list):
+		newc = list(newc.flatten())	
+	assert len(newr)==len(newc)
+	return r+newr, c+newc, d+[newdval]*len(newr)
+
 def indswap(l,i_old,i_new):
 	for (i,l_ind) in enumerate(l):
 		if l_ind == i_old:

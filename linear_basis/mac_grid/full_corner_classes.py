@@ -287,60 +287,11 @@ class FullCornerRefineSolver(Solver):
 							v = frac[csy==fsy]*frac[csz==fsz]
 							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds,cinds,v)
 
-		# refinement at (y = .5 or y = 0)
-		for j in range(2):
-			cgrid = np.array(q1[2+j]).reshape((-1,2,int(self.N/2)+1))
-			fgrid = np.array(q3[3-j]).reshape((-1,2,self.N-1))
-
-			self.Id[fgrid[:,1-j,:].flatten()] = 1
-			mymap[fgrid[:,1-j,:].flatten()] = -1
-			
-			findsa = fgrid[1:-1,1-j,:]
-			findsb = fgrid[1:-1,j,:]
-			Cr += list(findsa.flatten())
-			Cc += list(findsb.flatten())
-			Cd += [-1]*findsa.size
-
-			fcorners = [fgrid[0,1-j,:],fgrid[-1,1-j,:]]
-			for k in range(2):
-				yval = 1/4 if k else 3/4
-				for l in range(2):
-					zval = 1/4 if l else 3/4
-					corner_val = yval*zval
-					ccorner = list(cgrid[l,k,1:-1].flatten())
-					for p in range(2):
-						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,fcorners[p][1::2],ccorner,corner_val)
-
-					for m in range(2):
-						endx = None if m else -1
-						ccorner = list(cgrid[l,k,m:endx].flatten())
-						for p in range(2):
-							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,fcorners[p][::2],ccorner,corner_val/2)
-
-					for i in range(2):
-						end = -1 if l else -2
-						val = 3/4 if l else 1/4
-						finds0 = fgrid[i+1:-1:2,1-j,1::2]
-						cinds0 = cgrid[l:end,k,1:-1]
-						if i: cinds0 = cgrid[2:,k,1:-1]
-
-						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds0,cinds0,val)
-
-						for m in range(2):
-							endx = None if m else -1
-							finds1 = fgrid[i+1:-1:2,1-j,::2]
-							cinds1 = cgrid[l:end,k,m:endx]
-							if i: cinds1 = cgrid[2:,k,m:endx]
-							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds1,cinds1,val/2)
-
-		print(len(Cr),len(Cc),len(Cd))
-
 		# refinement at (z = .5 or z = 0)
 		for j in range(2):
 			full_cgrid = np.array(qb[j]).reshape((2,self.N+2,self.N+1))
 			cgrid = full_cgrid[:,int(self.N/2):,int(self.N/2):]
 			fgrid = np.array(q3[5-j]).reshape((2,self.N,self.N-1))
-			print(cgrid.shape,fgrid.shape)
 
 			self.Id[fgrid[1-j].flatten()] = 1
 			mymap[fgrid[1-j].flatten()] = -1
@@ -351,7 +302,6 @@ class FullCornerRefineSolver(Solver):
 			Cc += list(findsb.flatten())
 			Cd += [-1]*findsa.size
 
-
 			for k in range(2):
 				for i in range(2):
 					for l in range(2):
@@ -359,7 +309,7 @@ class FullCornerRefineSolver(Solver):
 						val = 3/4 if l else 1/4
 						finds0 = fgrid[1-j,i::2,1::2]
 						cinds0 = cgrid[k,l:end,1:-1]
-						if i: cinds0 = cgrid[k,2:,1:-1]
+						if i and not l: cinds0 = cgrid[k,2:,1:-1]
 
 						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds0,cinds0,val)
 
@@ -367,17 +317,46 @@ class FullCornerRefineSolver(Solver):
 							endx = None if m else -1
 							finds1 = fgrid[1-j,i::2,::2]
 							cinds1 = cgrid[k,l:end,m:endx]
-							if i: cinds1 = cgrid[k,2:,m:endx]
+							if i and not l: cinds1 = cgrid[k,2:,m:endx]
 							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds1,cinds1,val/2)
 
-		print(len(Cr),len(Cc),len(Cd))
+		# refinement at (y = .5 or y = 0) (includes yz corner edges)
+		for j in range(2):
+			cgrid = np.array(q1[2+j]).reshape((-1,2,int(self.N/2)+1))
+			fgrid = np.array(q3[3-j]).reshape((-1,2,self.N-1))
+
+			self.Id[fgrid[1:-1,1-j,:].flatten()] = 1
+			mymap[fgrid[1:-1,1-j,:].flatten()] = -1
+			
+			findsa = fgrid[1:-1,1-j,:]
+			findsb = fgrid[1:-1,j,:]
+			Cr += list(findsa.flatten())
+			Cc += list(findsb.flatten())
+			Cd += [-1]*findsa.size
+
+			for k in range(2):
+				for l in range(2):
+					for i in range(2):
+						end = -1 if l else -2
+						val = 3/4 if l else 1/4
+						finds0 = fgrid[i+1:-1:2,1-j,1::2]
+						cinds0 = cgrid[l:end,k,1:-1]
+						if i and not l: cinds0 = cgrid[2:,k,1:-1]
+
+						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds0,cinds0,val)
+						for m in range(2):
+							endx = None if m else -1
+							finds1 = fgrid[i+1:-1:2,1-j,::2]
+							cinds1 = cgrid[l:end,k,m:endx]
+							if i and not l: cinds1 = cgrid[2:,k,m:endx]
+							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds1,cinds1,val/2)
+
 		# same level along x axis
 		sqr = int(self.N/2)+2
 		for pair in [(q0[0],q1[1]),(q1[0],q0[1])]:
 			# lower case are ghosts, upper case are true dofs
 			B0 = np.array(pair[0]).reshape((sqr,sqr))[1:-1,1:-1].flatten()
 			t0 = np.array(pair[1]).reshape((sqr,sqr))[1:-1,1:-1].flatten()
-			#B0,t0 = np.array(pair[0]+pair[1]).reshape((2,-1))#-1,2)).T
 			ghost_list = np.array(t0)
 			self.mesh.periodic_ghost.append(ghost_list)
 			for (D,d) in zip(B0,t0):
