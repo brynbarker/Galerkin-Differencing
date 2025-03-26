@@ -297,20 +297,36 @@ class FullCornerRefineSolver(Solver):
 			self.Id[fgrid[:,1-j,:].flatten()] = 1
 			mymap[fgrid[:,1-j,:].flatten()] = -1
 			
-			findsa = fgrid[:,1-j,:]
-			findsb = fgrid[:,j,:]
+			findsa = fgrid[1:-1,1-j,:]
+			findsb = fgrid[1:-1,j,:]
 			Cr += list(findsa.flatten())
 			Cc += list(findsb.flatten())
 			Cd += [-1]*findsa.size
 
+			fcorners = [fgrid[0,1-j,:],fgrid[-1,1-j,:]]
 			for k in range(2):
-				for i in range(2):
-					for l in range(2):
-						end = None if l else -1
-						val = 3/4 if i==l else 1/4
-						finds0 = fgrid[i::2,1-j,1::2]
-						cinds0 = cgrid[l:end,k,1:-1]
+				yval = 1/4 if k else 3/4
+				for l in range(2):
+					zval = 1/4 if l else 3/4
+					corner_val = yval*zval
+					ccorner = list(cgrid[l,k,1:-1].flatten())
+					Cr += list(fcorners[0][1::2])+list(fcorners[1][1::2])
+					Cc += ccorner+ccorner
+					Cd += [corner_val]*2*len(ccorner)
 
+					for m in range(2):
+						endx = None if m else -1
+						ccorner = list(cgrid[l,k,m:endx].flatten())
+						Cr += list(fcorners[0][::2])+list(fcorners[1][::2])
+						Cc += ccorner+ccorner
+						Cd += [corner_val/2]*2*len(ccorner)
+
+					for i in range(2):
+						end = -1 if l else -2
+						val = 3/4 if l else 1/4
+						finds0 = fgrid[i+1:-1:2,1-j,1::2]
+						cinds0 = cgrid[l:end,k,1:-1]
+						if i: cinds0 = cgrid[2:,k,1:-1]
 
 						Cr += list(finds0.flatten())
 						Cc += list(cinds0.flatten())
@@ -318,16 +334,19 @@ class FullCornerRefineSolver(Solver):
 
 						for m in range(2):
 							endx = None if m else -1
-							finds1 = fgrid[i::2,1-j,::2]
+							finds1 = fgrid[i+1:-1:2,1-j,::2]
 							cinds1 = cgrid[l:end,k,m:endx]
+							if i: cinds1 = cgrid[2:,k,m:endx]
 							Cr += list(finds1.flatten())
 							Cc += list(cinds1.flatten())
 							Cd += [val/2]*finds1.size
 
+		print(len(Cr),len(Cc),len(Cd))
+
 		# refinement at (z = .5 or z = 0)
 		for j in range(2):
 			full_cgrid = np.array(qb[j]).reshape((2,self.N+2,self.N+1))
-			cgrid = full_cgrid[:,int(self.N/2):-1,int(self.N/2):]
+			cgrid = full_cgrid[:,int(self.N/2):,int(self.N/2):]
 			fgrid = np.array(q3[5-j]).reshape((2,self.N,self.N-1))
 			print(cgrid.shape,fgrid.shape)
 
@@ -341,29 +360,29 @@ class FullCornerRefineSolver(Solver):
 			Cd += [-1]*findsa.size
 
 
-			for zlevel in range(2):
-				val1 = 3/4 if j!=zlevel else 1/4
-				for cystart in range(2):
-					val0 = 3/4 if cystart else 1/4
-					end = None if cystart else -1
-					for fystart in range(2):
-						finds0 = fgrid[1-j,fystart::2,1::2]
-						cinds0 = cgrid[zlevel,cystart:end,1:-1]
-						val = val0*val1
+			for k in range(2):
+				for i in range(2):
+					for l in range(2):
+						end = -1 if l else -2
+						val = 3/4 if l else 1/4
+						finds0 = fgrid[1-j,i::2,1::2]
+						cinds0 = cgrid[k,l:end,1:-1]
+						if i: cinds0 = cgrid[k,2:,1:-1]
 
 						Cr += list(finds0.flatten())
 						Cc += list(cinds0.flatten())
 						Cd += [val]*finds0.size
 
-
-						for cxstart in range(2):
-							endx = None if cxstart else -1
-							finds1 = fgrid[1-j,fystart::2,::2]
-							cinds1 = cgrid[zlevel,cystart:end,cxstart:endx]
+						for m in range(2):
+							endx = None if m else -1
+							finds1 = fgrid[1-j,i::2,::2]
+							cinds1 = cgrid[k,l:end,m:endx]
+							if i: cinds1 = cgrid[k,2:,m:endx]
 							Cr += list(finds1.flatten())
 							Cc += list(cinds1.flatten())
 							Cd += [val/2]*finds1.size
 
+		print(len(Cr),len(Cc),len(Cd))
 		# same level along x axis
 		sqr = int(self.N/2)+2
 		for pair in [(q0[0],q1[1]),(q1[0],q0[1])]:
@@ -427,6 +446,8 @@ class FullCornerRefineSolver(Solver):
 					gdof,tdof = self.mesh.dofs[g],self.mesh.dofs[t]
 					mymap[mymap==g] = mymap[t]
 
+			
+
 		dL,DL,maskL = np.array(self.mesh.periodic).T
 		self.Id[dL] = 1
 		for (d,D,mask) in zip(dL,DL,maskL):
@@ -458,7 +479,7 @@ class FullCornerRefineSolver(Solver):
 				c_data[r] = [tup]
 		self.C_full = c_data
 
-		return
+		#return
 		num_true = len(self.true_dofs)
 		self.spC = sparse.coo_array((Cd,(Cr,Cc_small)),shape=(num_dofs,num_true)).tocsc()
 
@@ -486,9 +507,9 @@ class FullCornerRefineSolver(Solver):
 	def vis_constraints(self,retfig=False):
 		fig,ax = plt.subplots(2,4,figsize=(10,14),gridspec_kw={'width_ratios': [2.5, 1, 1, 1]})
 		markers = np.array([['s','^'],['v','o']])
-		colors = {1/16:'C0',3/16:'C1',9/16:'C2',1/32:'C3',3/32:'C4',9/32:'C8',-1:'C5',1/4:'C6',3/4:'C7'}
-		flags = {1/16:False,3/16:False,9/16:False,1/32:False,3/32:False,9/32:False,-1:False,1/4:False,3/4:False}
-		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16',1/832:'1/32',3/32:'3/32',9/32:'9/32',-1:'-1',1/4:'1/4',3/4:'3/4'}
+		colors = {1/16:'C0',3/16:'C1',9/16:'C2',1/8:'C3',3/8:'C4',-1:'C5',1/4:'C6',3/4:'C7'}
+		flags = {1/16:False,3/16:False,9/16:False,1/8:False,3/8:False,9/32:False,-1:False,1/4:False,3/4:False}
+		labs = {1/16:'1/16',3/16:'3/16',9/16:'9/16',1/8:'1/8',3/8:'3/8',9/32:'9/32',-1:'-1',1/4:'1/4',3/4:'3/4'}
 		axshow = []
 		for g_id in self.C_full:#c_data:
 			if len(self.C_full[g_id]) > 1:
