@@ -4,7 +4,7 @@ import scipy.linalg as la
 from scipy import sparse
 
 from linear_basis.mac_grid.classes import Node, Element, Mesh, Solver
-from linear_basis.mac_grid.helpers import vis_constraints, indswap, inddel 
+from linear_basis.mac_grid.helpers import indswap, inddel 
 
 
 class VerticalRefineMesh(Mesh):
@@ -294,8 +294,8 @@ class VerticalRefineSolver(Solver):
 		for i in range(2):
 			for j in range(3):
 				ax[i,j].set_title(ttl[i])
-				ax[i,j].set_ylabel('y')
-				ax[i,j].set_xlabel('z')
+				ax[i,j].set_ylabel('z')
+				ax[i,j].set_xlabel('y')
 		plt.show()
 		return
 

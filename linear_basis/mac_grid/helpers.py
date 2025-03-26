@@ -8,11 +8,38 @@ from linear_basis.mac_grid.shape_functions import *
 
 #visualization helpers
 
+def add_constraint(r,c,d,newr,newc,newdval):
+	if not isinstance(newr,list):
+		newr = list(newr.flatten())	
+	if not isinstance(newc,list):
+		newc = list(newc.flatten())	
+	assert len(newr)==len(newc)
+	return r+newr, c+newc, d+[newdval]*len(newr)
+
 def indswap(l,i_old,i_new):
 	for (i,l_ind) in enumerate(l):
 		if l_ind == i_old:
 			l[i] = i_new
 	return l
+
+def full_swap_and_set(r,c,d,mm,td):
+	carr = np.array(c)
+	ids = np.arange(len(mm))
+	mismask = (mm!=ids)*(mm!=-1)
+	for j,jmap in zip(ids[mismask],mm[mismask]):
+		carr[carr==j] = jmap
+
+	C = list(carr)
+	nonneg = mm!=-1
+	C += list(mm[nonneg])
+	r += list(ids[nonneg])
+	d += [1]*sum(nonneg)
+
+	c_small = np.array(C)
+	for i,td in enumerate(td):
+		c_small[c_small==td] = i
+
+	return r,list(C),d,list(c_small)
 
 def inddel(r,c,d,ind):
 	n = len(r)
@@ -22,118 +49,6 @@ def inddel(r,c,d,ind):
 		c.pop(j)
 		d.pop(j)
 	return r,c,d
-
-def c_map(v):
-	if v == 1:
-		return 'C0'
-	elif v == 1/4:
-		return 'C1'
-	elif v == 1/2:
-		return 'C2'
-	elif v == 3/4:
-		return 'C3'
-	elif v == 1/8:
-		return 'C4'
-	elif v == 3/8:
-		return 'C5'
-	else:
-		print(v)
-		return 'k'
-
-def vis_constraints(C,dofs,fine_ghosts,gridtype=None):
-	if gridtype == 'horiz':
-		h_ghosts = fine_ghosts
-		v_ghosts = [[],[]]
-	if gridtype == 'vert':
-		h_ghosts = [[],[]]
-		v_ghosts = fine_ghosts
-	if gridtype == 'corner':
-		h_ghosts = [fine_ghosts[0],fine_ghosts[1]]
-		v_ghosts = [fine_ghosts[2],fine_ghosts[3]]
-
-	fig = plt.figure(figsize=(20,20))
-	h = dofs[0].h
-
-	flags = {'C0':True,'C1':True,'C2':True,
-			 'C3':True,'C4':True,'C5':True,'k':True}
-	labels = {'C0':'1','C1':'1/4','C2':'1/2',
-			  'C3':'3/4','C4':'1/8','C5':'3/8','k':'other'}
-
-	for i,scale in enumerate([1,-1]):
-		for ind in h_ghosts[i]:
-			if C[ind,ind] != 1.:
-				dof_inds = np.nonzero(C[ind])[0]
-
-				f_x,f_y = dofs[ind].x,dofs[ind].y
-				for c_ind in dof_inds:
-					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
-					og = [c_x,c_y]
-					if f_x - c_x > .5: c_x += 1
-					if f_y - c_y > .5: c_y += 1
-					if c_x - f_x > .5: c_x -= 1
-					if c_y - f_y > .5: c_y -= 1
-					cmark = '^' if (og[1]==c_y) else '*'
-					if f_x==c_x:
-						c_x -= scale*h/2
-					if dofs[ind].h != h:
-						c = c_map(C[ind,c_ind])
-						if flags[c]:
-							plt.plot([f_x,c_x],[f_y,c_y],c=c,label=labels[c],lw=1)
-							flags[c] = False
-						else:
-							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
-						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
-						plt.plot([c_x],[c_y],c='k',ls='',marker=cmark)
-		
-	for i,scale in enumerate([-1,1]):
-		for ind in v_ghosts[i]:
-			if C[ind,ind] != 1.:
-				dof_inds = np.nonzero(C[ind])[0]
-
-				f_x,f_y = dofs[ind].x,dofs[ind].y
-				for c_ind in dof_inds:
-					c_x,c_y = dofs[c_ind].x, dofs[c_ind].y
-					og = [c_x,c_y]
-					if f_y - c_y > .5: c_y += 1
-					if f_x - c_x > .5: c_x += 1
-					cmark = '^' if (og[0]==c_x) else '*'
-		
-					if dofs[ind].h != h:
-						c = c_map(C[ind,c_ind])
-						if flags[c]:
-							plt.plot([f_x,c_x],[f_y,c_y],c=c,label=labels[c],lw=1)
-							flags[c] = False
-						else:
-							plt.plot([f_x,c_x],[f_y,c_y],c=c,lw=1)
-						plt.plot([f_x],[f_y],c='k',ls='',marker='o')
-						plt.plot([c_x],[c_y],c='k',ls='',marker=cmark)
-
-	plt.legend(fontsize=20)
-	return fig
-
-def vis_periodic(C,dofs,gridtype):
-	h = dofs[0].h/2
-	fig = plt.figure()
-	col = ['k','grey']
-	c = [['C0','C2'],['C1','C3']]
-	m = ['^','o']
-	for ind,row in enumerate(C):
-		if row[ind]==0 and max(row)==1:
-			fine = dofs[ind].h==h
-			g_x,g_y = dofs[ind].x,dofs[ind].y
-			x_shft = g_y/abs(g_y)*h/3
-			if gridtype=='vert': x_shft=0
-			dof_inds = np.nonzero(row)[0]
-			for c_ind in dof_inds:
-				if C[ind,c_ind] != 1:
-					print(ind,c_ind,C[ind,c_ind])
-				if dofs[ind].h == dofs[c_ind].h:
-					c_x,c_y = dofs[c_ind].x,dofs[c_ind].y
-					plt.plot([g_x+x_shft,c_x+x_shft],[g_y,c_y],col[row[c_ind]==1])
-					plt.scatter(c_x+x_shft,c_y,color=c[fine][1],marker=m[fine])
-					plt.scatter(g_x+x_shft,g_y,color=c[fine][0],marker=m[fine])
-	return fig
-				
 
 #animators
 

@@ -4,7 +4,7 @@ import scipy.linalg as la
 from scipy import sparse
 
 from linear_basis.mac_grid.classes import Node, Element, Mesh, Solver
-from linear_basis.mac_grid.helpers import vis_constraints, indswap, inddel 
+from linear_basis.mac_grid.helpers import indswap, inddel 
 
 
 class HorizontalRefineMesh(Mesh):
@@ -224,10 +224,10 @@ class HorizontalRefineSolver(Solver):
 						ax[axind].scatter([y+yshft],[z+zshft],color='k',marker=m)
 						ax[axind].scatter([ty+yshft],[tz+zshft],color='k',marker='o')
 						ax[axind].plot([y+yshft,ty+yshft],[z+zshft,tz+zshft])#,color=colors[val])
-		ax[0].set_title('x = 0')
+		ax[0].set_title('coarse')
 		ax[0].set_ylabel('z')
 		ax[0].set_xlabel('y')
-		ax[1].set_title('x = .5')
+		ax[1].set_title('fine')
 		ax[1].set_ylabel('z')
 		ax[1].set_xlabel('y')
 		if retfig: return fig
