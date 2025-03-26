@@ -4,7 +4,7 @@ import scipy.linalg as la
 from scipy import sparse
 
 from linear_basis.mac_grid.classes import Node, Element, Mesh, Solver
-from linear_basis.mac_grid.helpers import inddel, full_swap_and_set
+from linear_basis.mac_grid.helpers import inddel, full_swap_and_set, add_constraint
 
 class FullCornerRefinementMesh(Mesh):
 	def __init__(self,N):
@@ -285,9 +285,7 @@ class FullCornerRefineSolver(Solver):
 						for fsz in [0,1]:
 							finds = fgrid[fsy::2,fsz::2]
 							v = frac[csy==fsy]*frac[csz==fsz]
-							Cr += list(finds.flatten())
-							Cc += list(cinds.flatten())
-							Cd += [v]*finds.size
+							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds,cinds,v)
 
 		# refinement at (y = .5 or y = 0)
 		for j in range(2):
@@ -310,16 +308,14 @@ class FullCornerRefineSolver(Solver):
 					zval = 1/4 if l else 3/4
 					corner_val = yval*zval
 					ccorner = list(cgrid[l,k,1:-1].flatten())
-					Cr += list(fcorners[0][1::2])+list(fcorners[1][1::2])
-					Cc += ccorner+ccorner
-					Cd += [corner_val]*2*len(ccorner)
+					for p in range(2):
+						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,fcorners[p][1::2],ccorner,corner_val)
 
 					for m in range(2):
 						endx = None if m else -1
 						ccorner = list(cgrid[l,k,m:endx].flatten())
-						Cr += list(fcorners[0][::2])+list(fcorners[1][::2])
-						Cc += ccorner+ccorner
-						Cd += [corner_val/2]*2*len(ccorner)
+						for p in range(2):
+							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,fcorners[p][::2],ccorner,corner_val/2)
 
 					for i in range(2):
 						end = -1 if l else -2
@@ -328,18 +324,14 @@ class FullCornerRefineSolver(Solver):
 						cinds0 = cgrid[l:end,k,1:-1]
 						if i: cinds0 = cgrid[2:,k,1:-1]
 
-						Cr += list(finds0.flatten())
-						Cc += list(cinds0.flatten())
-						Cd += [val]*finds0.size
+						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds0,cinds0,val)
 
 						for m in range(2):
 							endx = None if m else -1
 							finds1 = fgrid[i+1:-1:2,1-j,::2]
 							cinds1 = cgrid[l:end,k,m:endx]
 							if i: cinds1 = cgrid[2:,k,m:endx]
-							Cr += list(finds1.flatten())
-							Cc += list(cinds1.flatten())
-							Cd += [val/2]*finds1.size
+							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds1,cinds1,val/2)
 
 		print(len(Cr),len(Cc),len(Cd))
 
@@ -369,18 +361,14 @@ class FullCornerRefineSolver(Solver):
 						cinds0 = cgrid[k,l:end,1:-1]
 						if i: cinds0 = cgrid[k,2:,1:-1]
 
-						Cr += list(finds0.flatten())
-						Cc += list(cinds0.flatten())
-						Cd += [val]*finds0.size
+						Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds0,cinds0,val)
 
 						for m in range(2):
 							endx = None if m else -1
 							finds1 = fgrid[1-j,i::2,::2]
 							cinds1 = cgrid[k,l:end,m:endx]
 							if i: cinds1 = cgrid[k,2:,m:endx]
-							Cr += list(finds1.flatten())
-							Cc += list(cinds1.flatten())
-							Cd += [val/2]*finds1.size
+							Cr, Cc, Cd = add_constraint(Cr,Cc,Cd,finds1,cinds1,val/2)
 
 		print(len(Cr),len(Cc),len(Cd))
 		# same level along x axis
