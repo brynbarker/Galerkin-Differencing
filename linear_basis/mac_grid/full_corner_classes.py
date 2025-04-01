@@ -71,7 +71,6 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
-		print(dof_id)
 
 
 	def _make_q0(self): #coarse
@@ -115,7 +114,6 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
-		print(dof_id)
 
 	def _make_q1(self): #coarse
 		self.interface[1] = [[],[],[],[],[],[]]
@@ -158,7 +156,6 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
-		print(dof_id)
 
 	def _make_q2(self):
 		self.interface[2] = [[],[],[],[],[],[]]
@@ -201,7 +198,6 @@ class FullCornerRefinementMesh(Mesh):
 
 		self.dof_count = dof_id
 		self.el_count = e_id
-		print(dof_id)
 
 	def _make_q3(self):
 		self.interface[3] = [[],[],[],[],[],[]]

@@ -10,7 +10,7 @@ f = lambda x,y,z: 8*np.pi**2*np.sin(2*np.pi*x)*np.cos(2*np.pi*y)
 
 # set up solvers
 prev = 1
-for N in [8,16]:
+for N in [16,32]:
 	cref = FullCornerRefineSolver(N,u,f)
 	cref.laplace()
 

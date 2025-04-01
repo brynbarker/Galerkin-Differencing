@@ -408,30 +408,31 @@ class Solver:
 		plt.show()
 		return
 
-	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None):
+	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None,onlytrue=False):
 		U = self.U_proj if proj else self.U_lap
 		U = myU if myU is not None else U
 		id0,x0,y0,z0,c0 = [],[], [], [], []
 		id1,x1,y1,z1,c1 = [],[], [], [], []
 		for dof in self.mesh.dofs.values():
-			if dof.h == self.h:
-				id1.append(dof.ID)
-				x1.append(dof.x)
-				y1.append(dof.y)
-				z1.append(dof.z)
-				val = U[dof.ID]
-				if err: val = abs(val-self.ufunc(dof.x,dof.y,dof.z))
-				c1.append(val)
+			if onlytrue and dof.ID in self.true_dofs:
+				if dof.h == self.h:
+					id1.append(dof.ID)
+					x1.append(dof.x)
+					y1.append(dof.y)
+					z1.append(dof.z)
+					val = U[dof.ID]
+					if err: val = abs(val-self.ufunc(dof.x,dof.y,dof.z))
+					c1.append(val)
 
 
-			else:
-				id0.append(dof.ID)
-				x0.append(dof.x)
-				y0.append(dof.y)
-				z0.append(dof.z)
-				val = U[dof.ID]
-				if err: val = abs(val-self.ufunc(dof.x,dof.y,dof.z))
-				c0.append(val)
+				else:
+					id0.append(dof.ID)
+					x0.append(dof.x)
+					y0.append(dof.y)
+					z0.append(dof.z)
+					val = U[dof.ID]
+					if err: val = abs(val-self.ufunc(dof.x,dof.y,dof.z))
+					c0.append(val)
 		
 		m = ['o' for v in c1]+['^' for v in c0]
 		
