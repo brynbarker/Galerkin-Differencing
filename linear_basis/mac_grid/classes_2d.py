@@ -235,9 +235,10 @@ class Solver:
 		mk = ['^','o']
 		for dof in self.mesh.dofs.values():
 			m = mk[dof.h==self.mesh.h]
+			c = 'grey' if self.Id[dof.ID] else 'k'
 			if dof.i == 0 and dof.j==0 and dof.ID !=0:
-				plt.scatter(dof.x,dof.y,marker=m,color='k',label='dof')
-			plt.scatter(dof.x,dof.y,marker=m,color='k')
+				plt.scatter(dof.x,dof.y,marker=m,color=c,label='dof')
+			plt.scatter(dof.x,dof.y,marker=m,color=c)
 
 		fine_inter = [dof for side in self.mesh.interface[2*corner+1] for dof in side]
 		#fine_inter = self.mesh.interface[2*corner+1][0]+self.mesh.interface[2*corner+1][1]
