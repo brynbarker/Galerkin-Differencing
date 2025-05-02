@@ -202,20 +202,38 @@ class CornerRefineSolver(Solver):
 			c_a, c_b = np.array(q1[2+i]).reshape((2,-1))
 			if i==1:
 				f_g, f_t = np.array(q3[3-i]).reshape((2,-1))
+				c_g, c_t = c_b, c_a
 			else:
 				f_t, f_g = np.array(q3[3-i]).reshape((2,-1))
+				c_g, c_t = c_a, c_b
 			self.Id[f_g] = 1
 			self.C_full[f_g] *= 0
+			self.Id[c_g] = 1
+			self.C_full[c_g] *= 0
+
+
+			self.C_full[f_g[1:-1:2],c_t[1:-1]] = 1
+			self.C_full[c_g[1:-1],f_t[1:-1:2]] = 1
+
+			self.C_full[f_g[::2],c_t[1:]] = 1/2
+			self.C_full[f_g[:-1:2],f_t[1::2]] = 1/2
+			self.C_full[f_g[::2],c_t[:-1]] = 1/2
+			self.C_full[f_g[2::2],f_t[1::2]] = 1/2
+
+			self.C_full[f_g[::2],f_t[::2]] = -1
+
+			self.C_full[f_g[0],c_g[0]] = 1/2
+			self.C_full[f_g[-1],c_g[-1]] = 1/2
 				
-			self.C_full[f_g[1:-1:2],c_a[1:-1]] = 1
-			self.C_full[f_g[1:-1:2],c_b[1:-1]] = 1
+			#self.C_full[f_g[1:-1:2],c_a[1:-1]] = 1
+			#self.C_full[f_g[1:-1:2],c_b[1:-1]] = 1
 
-			self.C_full[f_g[::2],c_a[1:]] = 1/2
-			self.C_full[f_g[::2],c_b[1:]] = 1/2
-			self.C_full[f_g[::2],c_a[:-1]] = 1/2
-			self.C_full[f_g[::2],c_b[:-1]] = 1/2
+			#self.C_full[f_g[::2],c_a[1:]] = 1/2
+			#self.C_full[f_g[::2],c_b[1:]] = 1/2
+			#self.C_full[f_g[::2],c_a[:-1]] = 1/2
+			#self.C_full[f_g[::2],c_b[:-1]] = 1/2
 
-			self.C_full[f_g,f_t] = -1
+			#self.C_full[f_g,f_t] = -1
 
 		# same level horizontally
 		#for i in range(2):
@@ -273,8 +291,8 @@ class CornerRefineSolver(Solver):
 		fig = vis_constraints(self.C_full,self.mesh.dofs,self.mesh.interface[3],'corner')
 		if retfig: return fig
 	
-	def vis_mesh(self,retfig=True):
-		fig = super().vis_mesh(corner=True,retfig=True)
+	def vis_mesh(self,retfig=False):
+		fig = super().vis_mesh(corner=True,retfig=retfig)
 		if retfig: return fig
 
 	def vis_periodic(self,retfig=False):
