@@ -151,7 +151,7 @@ class Mesh:
 		for e in self.elements:
 			e.update_dofs(self.dofs)
 
-class Solver:
+class SolverAlt:
 	def __init__(self,N,u,f=None,qpn=5):
 		self.N = N
 		self.ufunc = u
@@ -209,7 +209,7 @@ class Solver:
 				self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
 
 
-	def _setup_constraints(self,alt=0):
+	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
 		self.C_full = np.eye(num_dofs)
@@ -217,9 +217,6 @@ class Solver:
 
 		c_side = np.array(self.mesh.interface_offset[:4])
 		f_side = np.array(self.mesh.interface_offset[4:])
-		#self.Id[c_side[-1]] = 1
-		#self.C_full[c_side[-1]] *= 0
-		#self.C_full[c_side[-1],f_side[-1,::2]] = 1
 		#c_side = np.array(self.mesh.interface_offset[:4])
 		#f_side = np.array(self.mesh.interface_offset[4:])
 		#to_set = np.array([c_side[-1],f_side[0,::2]])
@@ -244,8 +241,20 @@ class Solver:
 
 		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
 			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
-			
 
+		### add in fine square ghost
+		#self.Id[f_side[0]] = 1
+		#self.C_full[f_side[0]] *= 0
+		#for ind,v in enumerate([v3,v1,v1,v3]):#,[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
+		#	self.C_full[f_side[0,::2],c_side[ind]] = v
+		#	for v2,offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
+		#		self.C_full[f_side[0,1::2],np.roll(c_side[ind],offset)] = v*v2
+
+		self.Id[c_side[-1]] = 1
+		self.C_full[c_side[-1]] *= 0
+		self.C_full[c_side[-1],f_side[-1,::2]] = 1
+		#for (cind,find) in zip(c_side[-1],f_side[-1,::2]):
+		#	self.C_full[:,cind] += self.C_full[:,find]
     
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
@@ -353,7 +362,7 @@ class Solver:
 			l2_err += val
 		return np.sqrt(l2_err)
 
-class Laplace(Solver):
+class LaplaceAlt(SolverAlt):
 	def __init__(self,N,u,f,qpn=5):
 		super().__init__(N,u,f,qpn)
 		self._setup_constraints()
@@ -370,7 +379,7 @@ class Laplace(Solver):
 		self.solved = True
 
 
-class Projection(Solver):
+class ProjectionAlt(SolverAlt):
 	def __init__(self,N,u,qpn=5):
 		super().__init__(N,u,u,qpn)
 

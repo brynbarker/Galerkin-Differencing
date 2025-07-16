@@ -26,6 +26,18 @@ def phi3_dx(x,h):
     else:
         return 0
 
+def phi3_dxx(x,h):
+    if -2*h < x <= -h:
+        return (12*h+6*x)/6/h**3
+    elif -h < x <= 0:
+        return (-4*h-6*x)/2/h**3
+    elif 0 < x <= h:
+        return -(4*h-6*x)/2/h**3
+    elif h < x <= 2*h:
+        return -(-12*h+6*x)/6/h**3
+    else:
+        return 0
+
 def phi3_2d(x,y,h):
     return phi3(x,h)*phi3(y,h)
 

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
 
-from helpers_2d import *
+from linear_basis.nodal_grid.helpers_2d import *
 
 
 class Node:
@@ -211,27 +211,27 @@ class Solver:
 	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
-		self.C = np.eye(num_dofs)
+		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
 
 
 		c_inter,f_inter = self.mesh.interface
 		self.Id[f_inter] = 1
-		self.C[f_inter] *= 0
+		self.C_full[f_inter] *= 0
 
         # collocated are set to the coarse node
-		self.C[f_inter[::2],c_inter[:]] = 1
+		self.C_full[f_inter[::2],c_inter[:]] = 1
 
 		f_odd = f_inter[1::2]
 
 		v0, v1 = phi1(1/2,1), phi1(-1/2,1)
 
 		for v, offset in zip([v0,v1],[0,-1]):#ind,ID in enumerate(f_odd):
-			self.C[f_inter[1::2],np.roll(c_inter,offset)] = v
+			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
     
 
 		for dof_id in self.mesh.boundaries:
-			self.C[dof_id] *= 0
+			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
 			self.dirichlet[dof_id] = self.ufunc(x,y)
@@ -240,15 +240,15 @@ class Solver:
 			# lower are true dofs, upper are ghosts
 			b,t = np.array(self.mesh.periodic[level]).reshape((2,-1))
 			ghost_list = t.copy()
-			self.C[ghost_list] *= 0.
+			self.C_full[ghost_list] *= 0.
 			self.Id[ghost_list] = 1.
-			self.C[t,b] = 1.
+			self.C_full[t,b] = 1.
 
 			if level == 1:
-				self.C[t[0],:] = self.C[b[0],:]
+				self.C_full[t[0],:] = self.C_full[b[0],:]
 
 		self.true_dofs = list(np.where(self.Id==0)[0])
-		self.C_rect = self.C[:,self.true_dofs]
+		self.C = self.C_full[:,self.true_dofs]
 	def solve(self):
 		print('virtual not overwritten')
 
@@ -337,12 +337,12 @@ class Laplace(Solver):
 		self._build_stiffness()
 		self._build_force()
 		self._setup_constraints()
-		# LHS = self.C.T @ self.K @ self.C + self.Id
-		# RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
-		LHS = self.C_rect.T @ self.K @ self.C_rect
-		RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
+		LHS = self.C.T @ self.K @ self.C
+		RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
+		#LHS = self.C_rect.T @ self.K @ self.C_rect
+		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
 		x = la.solve(LHS,RHS)
-		self.U = self.C_rect @ x + self.dirichlet
+		self.U = self.C @ x + self.dirichlet
 		self.solved = True
 
 
@@ -354,12 +354,12 @@ class Projection(Solver):
 		self._build_mass()
 		self._build_force()
 		self._setup_constraints()
-		# LHS = self.C.T @ self.M @ self.C + self.Id
-		# RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
-		LHS = self.C_rect.T @ self.M @ self.C_rect
-		RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
+		LHS = self.C.T @ self.M @ self.C
+		RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
+		#LHS = self.C_rect.T @ self.M @ self.C_rect
+		#RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
 		x = la.solve(LHS,RHS)
-		self.U = self.C_rect @ x + self.dirichlet
+		self.U = self.C @ x + self.dirichlet
 		self.solved = True
 		return x
 

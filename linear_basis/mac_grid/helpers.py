@@ -123,7 +123,7 @@ def gauss_vals(f,a,b,c,d,q,r,n,p):
 		for i in range(n):
 			for k in range(n):
 				vals[i,j,k] = f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
-	return vals  
+	return vals
 
 def super_quick_gauss(vals0,vals1,a,b,c,d,q,r,n,w):
 	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2

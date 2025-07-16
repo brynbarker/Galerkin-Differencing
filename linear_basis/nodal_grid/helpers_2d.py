@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from IPython.display import HTML
 
-from shape_functions_2d import *
+from linear_basis.nodal_grid.shape_functions_2d import *
 
 #visualization helpers
 
