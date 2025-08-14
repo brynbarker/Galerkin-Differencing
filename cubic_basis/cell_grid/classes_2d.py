@@ -1,10 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import scipy.sparse.linalg as sla
+from scipy import sparse
 
-from cubic_basis.nodal_grid.helpers_2d import *
-from cubic_basis.nodal_grid.shape_functions_2d import phi3_dxx
+from cubic_basis.cell_grid.helpers_2d import *
+from cubic_basis.cell_grid.shape_functions_2d import phi3_dxx
 
+keys = [None,0,1]
+id = 0
+LOOKUP = {}
+for xk in keys:
+    temp = {}
+    for yk in keys:
+        temp[yk] = id
+        id += 1
+    LOOKUP[xk] = temp
 
 class Node:
 	def __init__(self,ID,j,i,x,y,h):
@@ -32,6 +43,7 @@ class Element:
 		self.dof_list = []
 		self.fine = False
 		self.Interface = False
+		self.side = [None,None]
 		self.dom = [x,x+h,y,y+h]
 		self.plot = [[x,x+h,x+h,x,x],
 					 [y,y,y+h,y+h,y]]
@@ -55,8 +67,17 @@ class Element:
 
 	def set_fine(self):
 		self.fine = True
-	def set_interface(self):
+	def set_interface(self,xside,yside):
 		self.interface = True
+		self.side = [xside,yside]
+ 
+		loc = [self.x,self.y]
+		for dim,side in enumerate([xside,yside]):
+			if side is not None:
+				self.dom[2*dim+1-side] = loc[dim]+self.h/2
+		x0,x1,y0,y1 = self.dom
+		self.plot = [[x0,x1,x1,x0,x0],
+					 [y0,y0,y1,y1,y0]]
 
 class Mesh:
 	def __init__(self,N):
@@ -66,9 +87,9 @@ class Mesh:
 		self.dofs = {}
 		self.elements = []
 		self.boundaries = []
-		self.interface = [[],[]]
 		self.periodic = [[],[]]
-		self.interface_offset = [[],[],[],[],[],[],[],[]]
+		self.interface_offset = {0:[[] for _ in range(8)],
+						    	 1:[[] for _ in range(8)]}
 		
 		self._make_coarse()
 		self._make_fine()
@@ -77,36 +98,44 @@ class Mesh:
 
 	def _make_coarse(self):
 		H = self.h*2
-		xdom = np.linspace(0-H,0.5+H,int(self.N/2)+3)
-		ydom = np.linspace(-H,1+H,self.N+3)
+		xdom = np.linspace(0-3*H/2,0.5+3*H/2,int(self.N/2)+4)
+		ydom = np.linspace(-3*H/2,1+3*H/2,self.N+4)
 
 		xlen,ylen = len(xdom),len(ydom)
 
+		i_check,j_check = [1,ylen-3],[1,xlen-3]
+
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
+			yside = i==1 if i in i_check else None
 			for j,x in enumerate(xdom):
+				interface_element = i in i_check or j in j_check
+				xside = j==1 if j in j_check else None
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (0<=y<1.):
+				if (-H<x<.5) and (-H<y<1.):
 					strt = dof_id-1-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
+					if interface_element: element.set_interface(xside,yside)
 					e_id += 1
 
-				if x==0.:
-					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
+				#if x==H/2:
+				#	self.boundaries.append(dof_id)
+				if y < 2*H or y > 1.-2*H:
 					self.periodic[0].append(dof_id)
 				
-				if (x == 0.5) and (0 <= y < 1):
-					self.interface[0].append(dof_id)
-
 				if (.5-2*H <= x) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0].append(dof_id)
-					elif x < .5: self.interface_offset[1].append(dof_id)
-					elif x == .5: self.interface_offset[2].append(dof_id)
-					else: self.interface_offset[3].append(dof_id)
+					if x < .5-H: self.interface_offset[0][0].append(dof_id)
+					elif x < .5: self.interface_offset[0][1].append(dof_id)
+					elif x > .5+H: self.interface_offset[0][3].append(dof_id)
+					else: self.interface_offset[0][2].append(dof_id)
+				if (2*H >= x) and (0 <= y <1):
+					if x < -H: self.interface_offset[1][3].append(dof_id)
+					elif x < 0: self.interface_offset[1][2].append(dof_id)
+					elif x > H: self.interface_offset[1][0].append(dof_id)
+					else: self.interface_offset[1][1].append(dof_id)
 
 				dof_id += 1
 
@@ -115,35 +144,44 @@ class Mesh:
 
 	def _make_fine(self):
 		H = self.h
-		xdom = np.linspace(0.5-H,1.+H,self.N+3)
-		ydom = np.linspace(-H,1+H,2*self.N+3)
+		xdom = np.linspace(0.5-3*H/2,1.+3*H/2,self.N+4)
+		ydom = np.linspace(-3*H/2,1+3*H/2,2*self.N+4)
 
 		xlen,ylen = len(xdom),len(ydom)
 
+		i_check,j_check = [1,ylen-3],[1,xlen-3]
+
 		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
 		for i,y in enumerate(ydom):
+			yside = i==1 if i in i_check else None
 			for j,x in enumerate(xdom):
+				interface_element = i in i_check or j in j_check
+				xside = j==1 if j in j_check else None
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (0<=y<1.):
+				if (0.5-H<x<1.) and (0-H<y<1.):
 					strt = dof_id-1-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
+					if interface_element: element.set_interface(xside,yside)
 					e_id += 1
 
-				if x==1.:# and (0 <= y < 1):#or y==0. or y==1:
+				if x==1-5*H/2:
 					self.boundaries.append(dof_id)
 				elif y < 2*H or y > 1.-2*H:
 					self.periodic[1].append(dof_id)
-				if (x == 0.5) and (0 <= y < 1):
-					self.interface[1].append(dof_id)
 				if (x <= .5+2*H) and (0 <= y <1):
-					if x < .5: self.interface_offset[4].append(dof_id)
-					elif x == .5: self.interface_offset[5].append(dof_id)
-					elif x < .5+2*H: self.interface_offset[6].append(dof_id)
-					else: self.interface_offset[7].append(dof_id)
+					if x < .5-H: self.interface_offset[0][4].append(dof_id)
+					elif x < .5: self.interface_offset[0][5].append(dof_id)
+					elif x < .5+H: self.interface_offset[0][6].append(dof_id)
+					else: self.interface_offset[0][7].append(dof_id)
+				if (x >= 1-2*H) and (0 <= y <1):
+					if x < 1-H: self.interface_offset[1][7].append(dof_id)
+					elif x < 1: self.interface_offset[1][6].append(dof_id)
+					elif x < 1+H: self.interface_offset[1][5].append(dof_id)
+					else: self.interface_offset[1][4].append(dof_id)
 
 				dof_id += 1
 
@@ -172,15 +210,17 @@ class Solver:
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
 		for e in self.mesh.elements:
+			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
+			x0,x1 = e.dom[0]-e.x, e.dom[1]-e.x
 
 			for test_id,dof in enumerate(e.dof_list):
 
 				test_ind = id_to_ind[test_id]
 				phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind)
 				func = lambda x,y: phi_test(x,y) * self.ffunc(x+e.x,y+e.y)
-				val = gauss(func,0,e.h,0,e.h,self.qpn)
+				val = gauss(func,x0,x1,y0,y1,self.qpn)
 
-				self.F[dof.ID] -= val
+				self.F[dof.ID] += val
 
 	def _build_stiffness(self):
 		num_dofs = len(self.mesh.dofs)
@@ -188,11 +228,17 @@ class Solver:
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
-		base_k = local_stiffness(self.h)
+		ks = []
+		for j in [None,0,1]:
+			for i in [None,0,1]:
+				ks.append(local_stiffness(self.h,
+							  			  qpn=self.qpn,
+										  xside=j,yside=i))
 
 		for e in self.mesh.elements:
+			k_id = LOOKUP[e.side[0]][e.side[1]]
 			for test_id,dof in enumerate(e.dof_list):
-				self.K[dof.ID,e.dof_ids] += base_k[test_id]
+				self.K[dof.ID,e.dof_ids] += ks[k_id][test_id]
 
 
 	def _build_mass(self):
@@ -201,12 +247,18 @@ class Solver:
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
-		base_m = local_mass(self.h,qpn=self.qpn)
+		ms = []
+		for j in [None,0,1]:
+			for i in [None,0,1]:
+				ms.append(local_mass(self.h,
+							   		 qpn=self.qpn,
+									 xside=j,yside=i))
 
 		for e in self.mesh.elements:
 			scale = 1 if e.fine else 4
+			m_id = LOOKUP[e.side[0]][e.side[1]]
 			for test_id,dof in enumerate(e.dof_list):
-				self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
+				self.M[dof.ID,e.dof_ids] += ms[m_id][test_id]*scale
 
 
 	def _setup_constraints(self,alt=0):
@@ -215,38 +267,23 @@ class Solver:
 		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
 
-		c_side = np.array(self.mesh.interface_offset[:4])
-		f_side = np.array(self.mesh.interface_offset[4:])
-		#self.Id[c_side[-1]] = 1
-		#self.C_full[c_side[-1]] *= 0
-		#self.C_full[c_side[-1],f_side[-1,::2]] = 1
-		#c_side = np.array(self.mesh.interface_offset[:4])
-		#f_side = np.array(self.mesh.interface_offset[4:])
-		#to_set = np.array([c_side[-1],f_side[0,::2]])
-		#to_use = np.vstack((c_side[:3],f_side[2:,::2]))
+		for j in range(2):
+			c_side = np.array(self.mesh.interface_offset[j][:4])
+			f_side = np.array(self.mesh.interface_offset[j][4:])
 
-		#self.Id[to_set.flatten()] = 1
-		#self.C_full[to_set.flatten()] *= 0
+			v12,v32 = 9/16,-1/16
+			v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
 
-		#mat = np.array([[-1/3,5/3,-5,16/3,-2/3],[-1/12,2/3,1/4,1/3,-1/6]])
-		#for ind in range(5):
-		#	self.C_full[to_set[0],to_use[ind]] = mat[0,ind]
-		#	self.C_full[to_set[1],to_use[ind]] = mat[1,ind]
-
-		c_inter,f_inter = self.mesh.interface
-		self.Id[f_inter] = 1
-		self.C_full[f_inter] *= 0
-
-        # collocated are set to the coarse node
-		self.C_full[f_inter[::2],c_inter[:]] = 1
-
-		v1, v3 = phi3(1/2,1), phi3(3/2,1)
-
-		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
-			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
+			self.Id[f_side[0]] = 1
+			self.C_full[f_side[0]] *= 0
+			for ind,vhorz in enumerate([v32,v12,v12,v32]):
+				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
+					self.C_full[f_side[0][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
+					self.C_full[f_side[0][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+			for ind,vhorz in enumerate([v12,v12,v32]):
+				self.C_full[f_side[0],f_side[ind+1]] = -vhorz/v32
 			
-
-    
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
@@ -255,11 +292,11 @@ class Solver:
 
 		for level in range(2):
 			# lower are true dofs, upper are ghosts
-			b0,B1,B2,T0,t1,t2 = np.array(self.mesh.periodic[level]).reshape((6,-1))
-			ghost_list = np.array([b0,t1,t2])
+			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
+			ghost_list = np.array([b0,b1,t2,t3])
 			self.C_full[ghost_list] *= 0.
 			self.Id[ghost_list] = 1.
-			Ds, ds = [T0,B1,B2],[b0,t1,t2]
+			Ds, ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
 			for (D,d) in zip(Ds,ds):
 				self.C_full[d,D] = 1
 				for ind in [0,1,2,3,-4,-3,-2,-1]:
@@ -275,10 +312,18 @@ class Solver:
 	def vis_constraints(self):
 		fig,ax = plt.subplots(1,figsize=(16,24))
 		markers = np.array([['s','^'],['v','o']])
-		cols = {-1/16:'C0',9/16:'C1',1:'C2',1/4:'C3',3/4:'C4'}
-		flags = {-1/16:False,9/16:False,1:False,1/4:False,3/4:False}
-		labs = {-1/16:'-1/16',9/16:'9/16',1:'1',1/4:'1/4',3/4:'3/4'}
-		axshow = []
+		
+		v12,v32 = 9/16,-1/16
+		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
+		w = [-1,-v12/v32]+[vh*vv/v32 for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
+		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']
+		colors += ['skyblue','limegreen','yellow','salmon','darkgoldenrod']
+		cols = {v:colors[i] for (i,v) in enumerate(w)}
+		flags = {v:False for v in w}
+		labs = {v:str(v) for v in w}
+		unknown = {}
+		unknown_vals = []
+		unknown_cs = {}
 		for ind,b in enumerate(self.Id):
 			if b:
 				row = self.C_full[ind]
@@ -287,9 +332,10 @@ class Solver:
 				if dof.h==self.h:
 					for cind,val in enumerate(row):
 						if abs(val)>1e-12:
+							val = round(val,8)
 							cdof = self.mesh.dofs[cind]
 							cx,cy = cdof.x,cdof.y
-							if cdof.h!=dof.h or val==-1:
+							if cdof.h!=dof.h or cy==y:
 								if cx-x > .5: tx=cx-1
 								elif x-cx>.5: tx=cx+1
 								else: tx=cx
@@ -297,31 +343,50 @@ class Solver:
 								elif y-cy>.5: ty=cy+1
 								else: ty=cy
 
-								if tx==x: tx-=self.h
 								
 								m = markers[int(ty==cy),int(tx==cx)]
-								ax.scatter([x],[y],color='k',marker='o')
-								ax.scatter([tx],[ty],color='k',marker=m)
-								if flags[val]==False:
-									ax.plot([x,tx],[y,ty],color=cols[val],label=labs[val])
-									flags[val] = True
+								ms = 40 if cdof.h!=self.h else 20
+								ax.scatter([tx],[ty],color='k',marker=m,s=ms)
+								ax.scatter([x],[y],color='grey',marker='o',s=ms)
+								if val not in flags:
+									if dof.x==.5:
+										print(val, cdof.x, cdof.y)
+									if dof.ID not in unknown:
+										unknown[dof.ID] = [val]
+										unknown_cs[dof.ID] = [(cdof.x,cdof.y,cdof.h==self.h)]
+									else:
+										unknown[dof.ID].append(val)
+										unknown_cs[dof.ID].append((cdof.x,cdof.y,cdof.h==self.h))
+									if val not in unknown_vals:
+										unknown_vals.append(val)
 								else:
-									ax.plot([x,tx],[y,ty],color=cols[val])
-							else:
-								assert val==1
+									if flags[val]==False:
+										ax.plot([x,tx],[y,ty],color=cols[val],label=labs[val])
+										flags[val] = True
+									else:
+										ax.plot([x,tx],[y,ty],color=cols[val])
 							
 							
 					
 					
 		ax.legend()
 		plt.show()
-		return
 
-	#def vis_constraints(self):
-	#	if self.C is not None:
-	#		vis_constraints(self.C,self.mesh.dofs)
-	#	else:
-	#		print('Constraints have not been set')
+
+		if len(unknown)==0:
+			return None, flags
+
+		for id in unknown.keys():
+			dof = self.mesh.dofs[id]
+			m = 'o' if dof.h==self.h else 's'
+			for (x,y,h) in unknown_cs[id]:
+				plt.plot([dof.x,x],[dof.y,y],'lightgrey')
+				plt.plot(x,y,'k.')
+			plt.plot(dof.x,dof.y,m)
+		plt.title('unknowns')
+		plt.show()
+		print(unknown_vals)
+		return unknown, flags
 	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None,onlytrue=False):
 		U = self.U
 		if myU is not None: U=myU
@@ -329,7 +394,7 @@ class Solver:
 		id1,x1,y1,c1 = [],[], [], []
 		for dof in self.mesh.dofs.values():
 			#if onlytrue and dof.ID in self.true_dofs:
-			if dof.ID in self.true_dofs:
+			if not onlytrue or dof.ID in self.true_dofs:
 				if dof.h == self.h:
 					id1.append(dof.ID)
 					x1.append(dof.x)
@@ -367,20 +432,13 @@ class Solver:
 			c1 = np.array(c1)[msk]
 			vals = np.array([x1,y1,c1]).T
 			if dsp:print(vals)
-			
-
 
 		fig,ax = plt.subplots(1,2,figsize=(10,5))
 		plot1 = ax[0].scatter(x0,y0,marker='^',c=c0,cmap='jet')
 		fig.colorbar(plot1,location='left')
-		#ax[0].set_xlim(-1.5*self.h,.5+1.5*self.h)
-		#ax[0].set_ylim(-1.5*self.h,1+1.5*self.h)
-		#plt.show()
 
 		plot2 = ax[1].scatter(x1,y1,marker='o',c=c1,cmap='jet')
 		fig.colorbar(plot2,location='left')
-		#ax[1].set_xlim(-1.5*self.h,1+1.5*self.h)
-		#ax[1].set_ylim(-1.5*self.h,1+1.5*self.h)
 		plt.show()
 
 		if fltr and dsp: return id0,id1
@@ -389,6 +447,19 @@ class Solver:
 
 		fig = plt.figure()
 		mk = ['^','o']
+		
+		ind,tick = 0,0
+		while tick <= 1:
+			if ind % 2:
+				plt.plot([.5,1],[tick,tick],'grey')
+				if tick > .5:
+					plt.plot([tick,tick],[0,1],'grey')
+			else:
+				plt.plot([tick,tick],[0,1],'grey')
+				plt.plot([0,1],[tick,tick],'grey')
+			tick += self.h
+			ind += 1
+
 		for ind,dof in enumerate(self.mesh.dofs.values()):
 			m = mk[dof.h==self.mesh.h]
 			c = 'C0' if ind in self.true_dofs else 'C1'
@@ -399,20 +470,12 @@ class Solver:
 
 		plt.show()
 		return
-	#def vis_mesh(self):
-	#	markers = ['o','^']
-	#	colors = ['grey','C1']
-	#	for dof in self.mesh.dofs.values():
-	#		m = markers[dof.h==self.h]
-	#		c = colors[int(self.Id[dof.ID])]
-	#		plt.scatter(dof.x,dof.y,marker=m,c=c)
-	#	plt.show()
 
 	def vis_dofs(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		fig,ax = plt.subplots(figsize=(10,10))
-		ax.set_xlim(-3*self.h,1+3*self.h)
-		ax.set_ylim(-3*self.h,1+3*self.h)
+		fig,ax = plt.subplots(figsize=(5,5))
+		ax.set_xlim(-4*self.h,1+4*self.h)
+		ax.set_ylim(-4*self.h,1+4*self.h)
 
 		size = 16#int((self.p+1)**2)
 	
@@ -439,22 +502,12 @@ class Solver:
 		ani = FuncAnimation(fig, update, frames=len(self.mesh.dofs), interval=interval)
 		plt.close()
 		return HTML(ani.to_html5_video())
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for dof in self.mesh.dofs.values():
-			blocks = []
-			dots = [[dof.x],[dof.y]]
-			for e in dof.elements.values():
-				blocks.append(e.plot)
-			data.append([blocks,dots])
-
-		return animate_2d([frame],data,16)
 
 	def vis_elements(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		fig,ax = plt.subplots(figsize=(10,10))
-		ax.set_xlim(-3*self.h,1+3*self.h)
-		ax.set_ylim(-3*self.h,1+3*self.h)
+		fig,ax = plt.subplots(figsize=(5,5))
+		ax.set_xlim(-4*self.h,1+4*self.h)
+		ax.set_ylim(-4*self.h,1+4*self.h)
 	
 		line, = ax.plot(frame[0],frame[1],'lightgrey')
 		eline, = ax.plot([],[])
@@ -470,35 +523,19 @@ class Solver:
 				ys.append(dof.y)
 			dot.set_data(xs,ys)
 			return [line,eline,dot]
-			#	if i < len(e.dof_list):
-			#		blocks[i].set_data(e.dof_list[i].x,e.dof_list.y
-			#		blocks[i].set_data(blocks_n[i][0],blocks_n[i][1])
-			#	else:
-			#		blocks[i].set_data([],[])
-			#if yesdot: dot.set_data(dots_n[0],dots_n[1])
-			#to_return = [line]+blocks
-			#if yesdot: to_return += [dot]
-			#return to_return
 		interval = 400
 		ani = FuncAnimation(fig, update, frames=len(self.mesh.elements), interval=interval)
 		plt.close()
 		return HTML(ani.to_html5_video())
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for e in self.mesh.elements:
-			center = [(e.dom[1]+e.dom[0])/2,(e.dom[-1]+e.dom[-2])/2]
-			plt.plot(e.plot[0],e.plot[1],'grey')
-			plt.plot(center[0],center[1],'k.')
-
 
 	def xy_to_e(self,x,y):
-		n_x_els = [self.N/2,self.N]
+		n_x_els = [self.N/2+1,self.N+1]
         
 		x -= (x==1)*1e-12
 		y -= (y==1)*1e-12
 		fine = True if x >= 0.5 else False
-		x_ind = int((x-fine*.5)/((2-fine)*self.h))
-		y_ind = int(y/((2-fine)*self.h))
+		x_ind = int((x-fine*.5)/((2-fine)*self.h)+.5)
+		y_ind = int(y/((2-fine)*self.h)+.5)
 		el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
 		e = self.mesh.elements[int(el_ind)]
 		assert x >= min(e.plot[0]) and x <= max(e.plot[0])
@@ -514,10 +551,8 @@ class Solver:
 		def solution(x,y):
 			e = self.xy_to_e(x,y)
 
-			id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 			val = 0
-			for local_id, dof in enumerate(e.dof_list):
-				local_ind = id_to_ind[local_id]
+			for dof in e.dof_list:
 				val += weights[dof.ID]*phi3_2d_eval(x,y,dof.h,dof.x,dof.y)
 			
 			return val
@@ -527,8 +562,9 @@ class Solver:
 		uh = self.sol()
 		l2_err = 0.
 		for e in self.mesh.elements:
+			x0,x1,y0,y1 = e.dom
 			func = lambda x,y: (self.ufunc(x,y)-uh(x,y))**2
-			val = gauss(func,e.x,e.x+e.h,e.y,e.y+e.h,qpn)
+			val = gauss(func,x0,x1,y0,y1,qpn)
 			l2_err += val
 		return np.sqrt(l2_err)
 
@@ -540,30 +576,30 @@ class Laplace(Solver):
 	def solve(self):
 		self._build_stiffness()
 		self._build_force()
-		LHS = self.C.T @ self.K @ self.C
-		RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.K @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
-		self.solved = True
+		self.LHS = self.C.T @ self.K @ self.C
+		self.RHS = self.C.T @ (-self.F - self.K @ self.dirichlet)
+		try:
+			x = la.solve(self.LHS,self.RHS)
+			self.U = self.C @ x + self.dirichlet
+			self.solved = True
+		except:
+			print('something went wrong')
 
 
 class Projection(Solver):
 	def __init__(self,N,u,qpn=5):
 		super().__init__(N,u,u,qpn)
+		self._setup_constraints()
 
 	def solve(self):
 		self._build_mass()
 		self._build_force()
-		self._setup_constraints()
-		LHS = self.C.T @ self.M @ self.C
-		RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.M @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
-		self.solved = True
-		return x
-
+		self.LHS = self.C.T @ self.M @ self.C
+		self.RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
+		try:
+			x = la.solve(self.LHS,self.RHS)
+			self.U = self.C @ x + self.dirichlet
+			self.solved = True
+		except:
+			print('something went wrong')
 

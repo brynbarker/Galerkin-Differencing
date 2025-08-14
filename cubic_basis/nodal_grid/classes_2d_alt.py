@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import matplotlib.colors as mcolors
+from random import shuffle
 
 from cubic_basis.nodal_grid.helpers_2d import *
 from cubic_basis.nodal_grid.shape_functions_2d import phi3_dxx
@@ -180,7 +182,7 @@ class SolverAlt:
 				func = lambda x,y: phi_test(x,y) * self.ffunc(x+e.x,y+e.y)
 				val = gauss(func,0,e.h,0,e.h,self.qpn)
 
-				self.F[dof.ID] += val
+				self.F[dof.ID] -= val
 
 	def _build_stiffness(self):
 		num_dofs = len(self.mesh.dofs)
@@ -217,6 +219,9 @@ class SolverAlt:
 
 		c_side = np.array(self.mesh.interface_offset[:4])
 		f_side = np.array(self.mesh.interface_offset[4:])
+		#self.Id[c_side[-1]] = 1
+		#self.C_full[c_side[-1]] *= 0
+		#self.C_full[c_side[-1],f_side[-1,::2]] = 1
 		#c_side = np.array(self.mesh.interface_offset[:4])
 		#f_side = np.array(self.mesh.interface_offset[4:])
 		#to_set = np.array([c_side[-1],f_side[0,::2]])
@@ -239,20 +244,25 @@ class SolverAlt:
 
 		v1, v3 = phi3(1/2,1), phi3(3/2,1)
 
-		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
+		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
 			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
 
 		### add in fine square ghost
-		#self.Id[f_side[0]] = 1
-		#self.C_full[f_side[0]] *= 0
-		#for ind,v in enumerate([v3,v1,v1,v3]):#,[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
-		#	self.C_full[f_side[0,::2],c_side[ind]] = v
-		#	for v2,offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
-		#		self.C_full[f_side[0,1::2],np.roll(c_side[ind],offset)] = v*v2
+		#dvm3,dvm1,dvp1,dvp3 = -1/24/self.h, 9/8/self.h, -9/8/self.h, 1/24/self.h
+		C0,C1,C2,C3 = 1/6/self.h, -1/self.h, 1/2/self.h, 1/3/self.h
+		F0,F1,F2,F3 =  -2/3/self.h, -1/self.h, 2/self.h, -1/3/self.h
+		self.Id[f_side[0]] = 1
+		self.C_full[f_side[0]] *= 0
+		for ind,cv in enumerate([C0,C1,C2,C3]):
+			self.C_full[f_side[0,::2],c_side[ind]] = -cv/F0
+			for v,offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
+				self.C_full[f_side[0,1::2],np.roll(c_side[ind],offset)] = -cv*v/F0
+		for ind,fv in enumerate([F1,F2,F3]):
+			if ind == 0:
+				self.C_full[f_side[0]] += -fv/F0 * self.C_full[f_side[1]]
+			else:
+				self.C_full[f_side[0],f_side[ind+1]] = -fv/F0
 
-		self.Id[c_side[-1]] = 1
-		self.C_full[c_side[-1]] *= 0
-		self.C_full[c_side[-1],f_side[-1,::2]] = 1
 		#for (cind,find) in zip(c_side[-1],f_side[-1,::2]):
 		#	self.C_full[:,cind] += self.C_full[:,find]
     
@@ -282,44 +292,237 @@ class SolverAlt:
 		print('virtual not overwritten')
 
 	def vis_constraints(self):
-		if self.C is not None:
-			vis_constraints(self.C,self.mesh.dofs)
-		else:
-			print('Constraints have not been set')
+		fig,ax = plt.subplots(1,figsize=(20,24))
+		markers = np.array([['s','^'],['v','o']])
+		ep = 1e-15
+		v1, v3 = phi3(1/2,1), phi3(3/2,1)
+		C0,C1,C2,C3 = 1/6/self.h, -1/self.h, 1/2/self.h, 1/3/self.h
+		F0,F1,F2,F3 =  -2/3/self.h, -1/self.h, 2/self.h, -1/3/self.h
+		w = [1,v1,v3]+[C/F0 for C in [C0,C1,C3]] + [-F/F0 for F in [F2]]#,F3]]
+		w += [C*d/F0 for C in [C0,C1,C3] for d in [v1,v3]]
+		ftmp = [-F1/F0*v1,-F1/F0*v3]
+		w = [round(v,8) for v in w]
+		w += [round(f+v*C2/F0,8) for (f,v) in zip(ftmp,[v1,v3])]
+		w += [round(-F1/F0+C2/F0,8)]
+		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']
+		colors += ['skyblue','limegreen','yellow','salmon','darkgoldenrod']
+		cols = {v:colors[i] for (i,v) in enumerate(w)}
+		flags = {v:False for v in w}
+		labs = {v:str(v) for v in w}
+		unknown = {}
+		unknown_vals = []
+		unknown_cs = {}
+		for ind,b in enumerate(self.Id):
+			if b:
+				row = self.C_full[ind]
+				dof = self.mesh.dofs[ind]
+				x,y = dof.x,dof.y
+				if dof.h==self.h:
+					for cind,val in enumerate(row):
+						if abs(val)>1e-12:
+							val = round(val,8)
+							cdof = self.mesh.dofs[cind]
+							cx,cy = cdof.x,cdof.y
+							if cdof.h!=dof.h or val!=1:
+								if cx-x > .5: tx=cx-1
+								elif x-cx>.5: tx=cx+1
+								else: tx=cx
+								if cy-y > .5: ty=cy-1
+								elif y-cy>.5: ty=cy+1
+								else: ty=cy
 
-	def vis_mesh(self):
-		markers = ['o','^']
-		colors = ['grey','C1']
-		for dof in self.mesh.dofs.values():
-			m = markers[dof.h==self.h]
-			c = colors[int(self.Id[dof.ID])]
-			plt.scatter(dof.x,dof.y,marker=m,c=c)
+								
+								m = markers[int(ty==cy),int(tx==cx)]
+								ms = 40 if cdof.h!=self.h else 20
+								ax.scatter([tx],[ty],color='k',marker=m,s=ms)
+								ax.scatter([x],[y],color='grey',marker='o',s=ms)
+								if val not in flags:
+									if dof.x==.5:
+										print(val, cdof.x, cdof.y)
+									if dof.ID not in unknown:
+										unknown[dof.ID] = [val]
+										unknown_cs[dof.ID] = [(cdof.x,cdof.y,cdof.h==self.h)]
+									else:
+										unknown[dof.ID].append(val)
+										unknown_cs[dof.ID].append((cdof.x,cdof.y,cdof.h==self.h))
+									if val not in unknown_vals:
+										unknown_vals.append(val)
+								else:
+									if flags[val]==False:
+										ax.plot([x,tx],[y,ty],color=cols[val],label=labs[val])
+										flags[val] = True
+									else:
+										ax.plot([x,tx],[y,ty],color=cols[val])
+							
+							
+					
+					
+		ax.legend()
 		plt.show()
+
+
+		if len(unknown)==0:
+			return None, flags
+
+		for id in unknown.keys():
+			dof = self.mesh.dofs[id]
+			m = 'o' if dof.h==self.h else 's'
+			for (x,y,h) in unknown_cs[id]:
+				plt.plot([dof.x,x],[dof.y,y],'lightgrey')
+				plt.plot(x,y,'k.')
+			plt.plot(dof.x,dof.y,m)
+		plt.title('unknowns')
+		plt.show()
+		print(unknown_vals)
+		return unknown, flags
+
+	#def vis_constraints(self):
+	#	if self.C is not None:
+	#		vis_constraints(self.C,self.mesh.dofs)
+	#	else:
+	#		print('Constraints have not been set')
+	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None,onlytrue=False):
+		U = self.U
+		if myU is not None: U=myU
+		id0,x0,y0,c0 = [],[], [], []
+		id1,x1,y1,c1 = [],[], [], []
+		for dof in self.mesh.dofs.values():
+			#if onlytrue and dof.ID in self.true_dofs:
+			if dof.ID in self.true_dofs:
+				if dof.h == self.h:
+					id1.append(dof.ID)
+					x1.append(dof.x)
+					y1.append(dof.y)
+					val = U[dof.ID]
+					if err: val = abs(val-self.ufunc(dof.x,dof.y))
+					c1.append(val)
+
+
+				else:
+					id0.append(dof.ID)
+					x0.append(dof.x)
+					y0.append(dof.y)
+					val = U[dof.ID]
+					if err: val = abs(val-self.ufunc(dof.x,dof.y))
+					c0.append(val)
+		
+		m = ['o' for v in c1]+['^' for v in c0]
+		
+		if fltr:
+			mx = max(c0)
+			msk = np.array(c0)>fval*mx
+			id0 = np.array(id0)[msk]
+			x0 = np.array(x0)[msk]
+			y0 = np.array(y0)[msk]
+			c0 = np.array(c0)[msk]
+			vals = np.array([x0,y0,c0]).T
+			if dsp:print(vals)
+
+			mx = max(c1)
+			msk = np.array(c1)>fval*mx
+			id1 = np.array(id1)[msk]
+			x1 = np.array(x1)[msk]
+			y1 = np.array(y1)[msk]
+			c1 = np.array(c1)[msk]
+			vals = np.array([x1,y1,c1]).T
+			if dsp:print(vals)
+			
+
+
+		fig,ax = plt.subplots(1,2,figsize=(10,5))
+		plot1 = ax[0].scatter(x0,y0,marker='^',c=c0,cmap='jet')
+		fig.colorbar(plot1,location='left')
+		#ax[0].set_xlim(-1.5*self.h,.5+1.5*self.h)
+		#ax[0].set_ylim(-1.5*self.h,1+1.5*self.h)
+		#plt.show()
+
+		plot2 = ax[1].scatter(x1,y1,marker='o',c=c1,cmap='jet')
+		fig.colorbar(plot2,location='left')
+		#ax[1].set_xlim(-1.5*self.h,1+1.5*self.h)
+		#ax[1].set_ylim(-1.5*self.h,1+1.5*self.h)
+		plt.show()
+
+		if fltr and dsp: return id0,id1
+
+	def vis_mesh(self,corner=False,retfig=False):
+
+		fig = plt.figure()
+		mk = ['^','o']
+		for ind,dof in enumerate(self.mesh.dofs.values()):
+			m = mk[dof.h==self.mesh.h]
+			c = 'C0' if ind in self.true_dofs else 'C1'
+			cind = 2*(ind in self.true_dofs)+((ind in self.true_dofs)==(dof.h==self.mesh.h))
+			c = 'C'+str(cind)
+			alpha = 1 if ind in self.true_dofs else .5
+			plt.scatter(dof.x,dof.y,marker=m,color=c,alpha=alpha)
+
+		plt.show()
+		return
+	#def vis_mesh(self):
+	#	markers = ['o','^']
+	#	colors = ['grey','C1']
+	#	for dof in self.mesh.dofs.values():
+	#		m = markers[dof.h==self.h]
+	#		c = colors[int(self.Id[dof.ID])]
+	#		plt.scatter(dof.x,dof.y,marker=m,c=c)
+	#	plt.show()
 
 	def vis_dofs(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for dof in self.mesh.dofs.values():
-			blocks = []
-			dots = [[dof.x],[dof.y]]
-			for e in dof.elements.values():
-				blocks.append(e.plot)
-			data.append([blocks,dots])
+		fig,ax = plt.subplots(figsize=(10,10))
+		ax.set_xlim(-3*self.h,1+3*self.h)
+		ax.set_ylim(-3*self.h,1+3*self.h)
 
-		return animate_2d([frame],data,16)
+		size = 16#int((self.p+1)**2)
+	
+		line, = ax.plot(frame[0],frame[1],'lightgrey')
+		blocks = []
+		for _ in range(size):
+			block, = ax.plot([],[])
+			blocks.append(block)
+		dot, = ax.plot([],[],'ko',linestyle='None')
+
+		def update(n):
+			dof = self.mesh.dofs[n]
+			els = list(dof.elements.values())
+			line.set_data(frame[0],frame[1])
+			dot.set_data(dof.x,dof.y)
+			for i in range(size):
+				if i < len(dof.elements):
+					e = els[i]
+					blocks[i].set_data(e.plot[0],e.plot[1])
+				else:
+					blocks[i].set_data([],[])
+			return [line,blocks,dot]
+		interval = 400
+		ani = FuncAnimation(fig, update, frames=len(self.mesh.dofs), interval=interval)
+		plt.close()
+		return HTML(ani.to_html5_video())
 
 	def vis_elements(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for e in self.mesh.elements:
-			blocks = [e.plot]
-			dots = [[],[]]
-			for dof in e.dof_list:
-				dots[0].append(dof.x)
-				dots[1].append(dof.y)
-			data.append([blocks,dots])
+		fig,ax = plt.subplots(figsize=(10,10))
+		ax.set_xlim(-3*self.h,1+3*self.h)
+		ax.set_ylim(-3*self.h,1+3*self.h)
+	
+		line, = ax.plot(frame[0],frame[1],'lightgrey')
+		eline, = ax.plot([],[])
+		dot, = ax.plot([],[],'ko',linestyle='None')
 
-		return animate_2d([frame],data,16)
+		def update(n):
+			e = self.mesh.elements[n]
+			line.set_data(frame[0],frame[1])
+			eline.set_data(e.plot[0],e.plot[1])
+			xs,ys = [],[]
+			for dof in e.dof_list:
+				xs.append(dof.x)
+				ys.append(dof.y)
+			dot.set_data(xs,ys)
+			return [line,eline,dot]
+		interval = 400
+		ani = FuncAnimation(fig, update, frames=len(self.mesh.elements), interval=interval)
+		plt.close()
+		return HTML(ani.to_html5_video())
 
 	def xy_to_e(self,x,y):
 		n_x_els = [self.N/2,self.N]
@@ -381,7 +584,7 @@ class LaplaceAlt(SolverAlt):
 
 class ProjectionAlt(SolverAlt):
 	def __init__(self,N,u,qpn=5):
-		super().__init__(N,u,u,qpn)
+		super().__init__(N,u,-u,qpn)
 
 	def solve(self):
 		self._build_mass()

@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import matplotlib.colors as mcolors
+from random import shuffle
 
 from cubic_basis.nodal_grid.helpers_2d import *
 from cubic_basis.nodal_grid.shape_functions_2d import phi3_dxx
@@ -151,7 +153,7 @@ class Mesh:
 		for e in self.elements:
 			e.update_dofs(self.dofs)
 
-class Solver:
+class SolverAlt:
 	def __init__(self,N,u,f=None,qpn=5):
 		self.N = N
 		self.ufunc = u
@@ -209,7 +211,7 @@ class Solver:
 				self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
 
 
-	def _setup_constraints(self,alt=0):
+	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
 		self.C_full = np.eye(num_dofs)
@@ -242,10 +244,27 @@ class Solver:
 
 		v1, v3 = phi3(1/2,1), phi3(3/2,1)
 
-		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
+		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
 			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
-			
 
+		### add in fine square ghost
+		#dvm3,dvm1,dvp1,dvp3 = -1/24/self.h, 9/8/self.h, -9/8/self.h, 1/24/self.h
+		C0,C1,C2,C3 = 1/6/self.h, -1/self.h, 1/2/self.h, 1/3/self.h
+		F0,F1,F2,F3 =  -2/3/self.h, -1/self.h, 2/self.h, -1/3/self.h
+		self.Id[f_side[0]] = 1
+		self.C_full[f_side[0]] *= 0
+		for ind,cv in enumerate([C0,C1,C2,C3]):
+			self.C_full[f_side[0,::2],c_side[ind]] = -cv/F0
+			for v,offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
+				self.C_full[f_side[0,1::2],np.roll(c_side[ind],offset)] = -cv*v/F0
+		for ind,fv in enumerate([F1,F2,F3]):
+			if ind == 0:
+				self.C_full[f_side[0]] += -fv/F0 * self.C_full[f_side[1]]
+			else:
+				self.C_full[f_side[0],f_side[ind+1]] = -fv/F0
+
+		#for (cind,find) in zip(c_side[-1],f_side[-1,::2]):
+		#	self.C_full[:,cind] += self.C_full[:,find]
     
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
@@ -273,12 +292,33 @@ class Solver:
 		print('virtual not overwritten')
 
 	def vis_constraints(self):
-		fig,ax = plt.subplots(1,figsize=(16,24))
+		fig,ax = plt.subplots(1,figsize=(20,24))
 		markers = np.array([['s','^'],['v','o']])
-		cols = {-1/16:'C0',9/16:'C1',1:'C2',1/4:'C3',3/4:'C4'}
-		flags = {-1/16:False,9/16:False,1:False,1/4:False,3/4:False}
-		labs = {-1/16:'-1/16',9/16:'9/16',1:'1',1/4:'1/4',3/4:'3/4'}
-		axshow = []
+		ep = 1e-15
+		v1, v3 = phi3(1/2,1), phi3(3/2,1)
+		C0,C1,C2,C3 = 1/6/self.h, -1/self.h, 1/2/self.h, 1/3/self.h
+		F0,F1,F2,F3 =  -2/3/self.h, -1/self.h, 2/self.h, -1/3/self.h
+		w = [1,v1,v3]+[C/F0 for C in [C0,C1,C3]] + [-F/F0 for F in [F2]]#,F3]]
+		w += [C*d/F0 for C in [C0,C1,C3] for d in [v1,v3]]
+		ftmp = [-F1/F0*v1,-F1/F0*v3]
+		w = [round(v,8) for v in w]
+		w += [round(f+v*C2/F0,8) for (f,v) in zip(ftmp,[v1,v3])]
+		w += [round(-F1/F0+C2/F0,8)]
+		print(w)
+		#tmp = [round(f+v*C2/F0,8) for f in ftmp for v in [v1,v3]]
+		#print(tmp)
+		#tmp1 = [round(v+dvm1*C/F0,8) for v in tmp for C in [C0,C1,C2,C3]]
+		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']
+		colors += ['skyblue','limegreen','yellow','salmon','darkgoldenrod']
+		#colors = list((mcolors.CSS4_COLORS).keys())
+		#shuffle(colors)
+		print(len(colors),len(w))
+		cols = {v:colors[i] for (i,v) in enumerate(w)}
+		flags = {v:False for v in w}
+		labs = {v:str(v) for v in w}
+		unknown = {}
+		unknown_vals = []
+		unknown_cs = {}
 		for ind,b in enumerate(self.Id):
 			if b:
 				row = self.C_full[ind]
@@ -287,9 +327,10 @@ class Solver:
 				if dof.h==self.h:
 					for cind,val in enumerate(row):
 						if abs(val)>1e-12:
+							val = round(val,8)
 							cdof = self.mesh.dofs[cind]
 							cx,cy = cdof.x,cdof.y
-							if cdof.h!=dof.h or val==-1:
+							if cdof.h!=dof.h or val!=1:
 								if cx-x > .5: tx=cx-1
 								elif x-cx>.5: tx=cx+1
 								else: tx=cx
@@ -297,25 +338,50 @@ class Solver:
 								elif y-cy>.5: ty=cy+1
 								else: ty=cy
 
-								if tx==x: tx-=self.h
 								
 								m = markers[int(ty==cy),int(tx==cx)]
-								ax.scatter([x],[y],color='k',marker='o')
-								ax.scatter([tx],[ty],color='k',marker=m)
-								if flags[val]==False:
-									ax.plot([x,tx],[y,ty],color=cols[val],label=labs[val])
-									flags[val] = True
+								ms = 40 if cdof.h!=self.h else 20
+								ax.scatter([tx],[ty],color='k',marker=m,s=ms)
+								ax.scatter([x],[y],color='grey',marker='o',s=ms)
+								if val not in flags:
+									if dof.x==.5:
+										print(val, cdof.x, cdof.y)
+									if dof.ID not in unknown:
+										unknown[dof.ID] = [val]
+										unknown_cs[dof.ID] = [(cdof.x,cdof.y,cdof.h==self.h)]
+									else:
+										unknown[dof.ID].append(val)
+										unknown_cs[dof.ID].append((cdof.x,cdof.y,cdof.h==self.h))
+									if val not in unknown_vals:
+										unknown_vals.append(val)
 								else:
-									ax.plot([x,tx],[y,ty],color=cols[val])
-							else:
-								assert val==1
+									if flags[val]==False:
+										ax.plot([x,tx],[y,ty],color=cols[val],label=labs[val])
+										flags[val] = True
+									else:
+										ax.plot([x,tx],[y,ty],color=cols[val])
 							
 							
 					
 					
 		ax.legend()
 		plt.show()
-		return
+
+
+		if len(unknown)==0:
+			return None, flags
+
+		for id in unknown.keys():
+			dof = self.mesh.dofs[id]
+			m = 'o' if dof.h==self.h else 's'
+			for (x,y,h) in unknown_cs[id]:
+				plt.plot([dof.x,x],[dof.y,y],'lightgrey')
+				plt.plot(x,y,'k.')
+			plt.plot(dof.x,dof.y,m)
+		plt.title('unknowns')
+		plt.show()
+		print(unknown_vals)
+		return unknown, flags
 
 	#def vis_constraints(self):
 	#	if self.C is not None:
@@ -439,16 +505,6 @@ class Solver:
 		ani = FuncAnimation(fig, update, frames=len(self.mesh.dofs), interval=interval)
 		plt.close()
 		return HTML(ani.to_html5_video())
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for dof in self.mesh.dofs.values():
-			blocks = []
-			dots = [[dof.x],[dof.y]]
-			for e in dof.elements.values():
-				blocks.append(e.plot)
-			data.append([blocks,dots])
-
-		return animate_2d([frame],data,16)
 
 	def vis_elements(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
@@ -470,26 +526,10 @@ class Solver:
 				ys.append(dof.y)
 			dot.set_data(xs,ys)
 			return [line,eline,dot]
-			#	if i < len(e.dof_list):
-			#		blocks[i].set_data(e.dof_list[i].x,e.dof_list.y
-			#		blocks[i].set_data(blocks_n[i][0],blocks_n[i][1])
-			#	else:
-			#		blocks[i].set_data([],[])
-			#if yesdot: dot.set_data(dots_n[0],dots_n[1])
-			#to_return = [line]+blocks
-			#if yesdot: to_return += [dot]
-			#return to_return
 		interval = 400
 		ani = FuncAnimation(fig, update, frames=len(self.mesh.elements), interval=interval)
 		plt.close()
 		return HTML(ani.to_html5_video())
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for e in self.mesh.elements:
-			center = [(e.dom[1]+e.dom[0])/2,(e.dom[-1]+e.dom[-2])/2]
-			plt.plot(e.plot[0],e.plot[1],'grey')
-			plt.plot(center[0],center[1],'k.')
-
 
 	def xy_to_e(self,x,y):
 		n_x_els = [self.N/2,self.N]
@@ -532,7 +572,7 @@ class Solver:
 			l2_err += val
 		return np.sqrt(l2_err)
 
-class Laplace(Solver):
+class LaplaceAlt(SolverAlt):
 	def __init__(self,N,u,f,qpn=5):
 		super().__init__(N,u,f,qpn)
 		self._setup_constraints()
@@ -549,7 +589,7 @@ class Laplace(Solver):
 		self.solved = True
 
 
-class Projection(Solver):
+class ProjectionAlt(SolverAlt):
 	def __init__(self,N,u,qpn=5):
 		super().__init__(N,u,u,qpn)
 
