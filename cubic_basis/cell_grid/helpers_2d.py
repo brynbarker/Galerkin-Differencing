@@ -5,6 +5,21 @@ from IPython.display import HTML
 
 from cubic_basis.cell_grid.shape_functions_2d import *
 
+def indswap(l,i_old,i_new):
+	for (i,l_ind) in enumerate(l):
+		if l_ind == i_old:
+			l[i] = i_new
+	return l
+
+def inddel(r,c,d,ind):
+	n = len(r)
+	to_pop = [j for j in range(n) if r[j]==ind]
+	for j in to_pop[::-1]:
+		r.pop(j)
+		c.pop(j)
+		d.pop(j)
+	return r,c,d
+
 #integrators
 def get_all_gauss(qpn,x0,x1,y0,y1,p):
 	id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}

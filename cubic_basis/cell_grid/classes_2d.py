@@ -203,28 +203,32 @@ class Solver:
 		self.C = None
 		self.Id = None
 
+		self._setup_constraints()
+		self.quad_vals = compute_gauss(qpn)
+
 	def _build_force(self):
 		num_dofs = len(self.mesh.dofs)
 		self.F = np.zeros(num_dofs)
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+		g_interface,q_p,g_w = self.quad_vals
 
 		for e in self.mesh.elements:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			x0,x1 = e.dom[0]-e.x, e.dom[1]-e.x
-
+			func = lambda x,y: self.ffunc(x+e.x,y+e.y)
+			f_vals = gauss_vals(func,x0,x1,y0,y1,self.qpn,q_p)
+			dom_id = LOOKUP[e.side[0]][e.side[1]]
 			for test_id,dof in enumerate(e.dof_list):
-
-				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind)
-				func = lambda x,y: phi_test(x,y) * self.ffunc(x+e.x,y+e.y)
-				val = gauss(func,x0,x1,y0,y1,self.qpn)
+				phi_vals = g_interface[dom_id][test_id]
+				val = super_quick_gauss(f_vals,phi_vals,x0,x1,y0,y1,self.qpn,g_w)
 
 				self.F[dof.ID] += val
 
 	def _build_stiffness(self):
 		num_dofs = len(self.mesh.dofs)
 		self.K = np.zeros((num_dofs,num_dofs))
+		Kr, Kc, Kd = [],[],[]
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
@@ -238,12 +242,17 @@ class Solver:
 		for e in self.mesh.elements:
 			k_id = LOOKUP[e.side[0]][e.side[1]]
 			for test_id,dof in enumerate(e.dof_list):
+				Kr += [dof.ID]*len(e.dof_ids)
+				Kc += e.dof_ids
+				Kd += list(ks[k_id][test_id])
 				self.K[dof.ID,e.dof_ids] += ks[k_id][test_id]
+		self.spK = sparse.coo_array((Kd,(Kr,Kc)),shape=(num_dofs,num_dofs)).tocsc()
 
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
 		self.M = np.zeros((num_dofs,num_dofs))
+		Mr, Mc, Md = [],[],[]
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
@@ -258,7 +267,11 @@ class Solver:
 			scale = 1 if e.fine else 4
 			m_id = LOOKUP[e.side[0]][e.side[1]]
 			for test_id,dof in enumerate(e.dof_list):
+				Mr += [dof.ID]*len(e.dof_ids)
+				Mc += e.dof_ids
+				Md += list(ms[m_id][test_id]*scale)
 				self.M[dof.ID,e.dof_ids] += ms[m_id][test_id]*scale
+		self.spM = sparse.coo_array((Md,(Mr,Mc)),shape=(num_dofs,num_dofs)).tocsc()
 
 
 	def _setup_constraints(self,alt=0):
@@ -266,6 +279,7 @@ class Solver:
 		self.Id = np.zeros(num_dofs)
 		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
+		Cr, Cc, Cd = [],[],[]
 
 		for j in range(2):
 			c_side = np.array(self.mesh.interface_offset[j][:4])
@@ -279,16 +293,20 @@ class Solver:
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
 					self.C_full[f_side[0][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+					Cr += list((f_side[0][::2]).flatten())
+					Cc += list(np.roll(c_side[ind],offset).flatten())
+					Cd += [vvert*vhorz/v32]*(f_side[0][::2]).size
 				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
 					self.C_full[f_side[0][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+					Cr += list((f_side[0][1::2]).flatten())
+					Cc += list(np.roll(c_side[ind],offset).flatten())
+					Cd += [vvert*vhorz/v32]*(f_side[0][1::2]).size
 			for ind,vhorz in enumerate([v12,v12,v32]):
 				self.C_full[f_side[0],f_side[ind+1]] = -vhorz/v32
-			
-		for dof_id in self.mesh.boundaries:
-			self.C_full[dof_id] *= 0
-			self.Id[dof_id] = 1.
-			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
-			self.dirichlet[dof_id] = self.ufunc(x,y)
+				Cr += list((f_side[0]).flatten())
+				Cc += list((f_side[ind+1]).flatten())
+				Cd += [-vhorz/v32]*(f_side[0]).size
+
 
 		for level in range(2):
 			# lower are true dofs, upper are ghosts
@@ -302,9 +320,44 @@ class Solver:
 				for ind in [0,1,2,3,-4,-3,-2,-1]:
 					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
 					self.C_full[d[ind],:] = self.C_full[D[ind],:]
+			
+		for dof_id in self.mesh.boundaries:
+			Cr,Cc,Cd = inddel(Cr,Cc,Cd,dof_id)
+			assert dof_id not in Cr
+			self.C_full[dof_id] *= 0
+			self.Id[dof_id] = 1.
+			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
+			self.dirichlet[dof_id] = self.ufunc(x,y)
 
 		self.true_dofs = list(np.where(self.Id==0)[0])
 		self.C = self.C_full[:,self.true_dofs]
+		return
+		for true_ind in self.true_dofs:
+			if true_ind not in self.mesh.boundaries:
+				Cr.append(true_ind)
+				Cc.append(true_ind)
+				Cd.append(1.)
+
+		self.spC_full = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_dofs))
+		c_data = {}
+		for i,r in enumerate(self.spC_full.row):
+			tup = (self.spC_full.col[i],self.spC_full.data[i])
+			if r in c_data.keys():
+				c_data[r].append(tup)
+			else:
+				c_data[r] = [tup]
+		self.C_full = c_data
+
+		Cc_array = np.array(Cc)
+		masks = []
+		for true_dof in self.true_dofs:
+			masks.append(Cc_array==true_dof)
+		for j,mask in enumerate(masks):
+			Cc_array[mask] = j
+		Cc = list(Cc_array)
+
+		num_true = len(self.true_dofs)
+		self.spC = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_true)).tocsc()
 
 	def solve(self):
 		print('virtual not overwritten')
@@ -577,10 +630,15 @@ class Laplace(Solver):
 		self._build_stiffness()
 		self._build_force()
 		self.LHS = self.C.T @ self.K @ self.C
-		self.RHS = self.C.T @ (-self.F - self.K @ self.dirichlet)
+		self.RHS = self.C.T @(-self.F - self.K @ self.dirichlet)
+		#self.LHS = self.spC.T @ self.spK @ self.spC
+		#self.RHS = self.spC.T.dot(-self.F - self.spK.dot(self.dirichlet))
 		try:
+			#x,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
+			#assert conv==0
 			x = la.solve(self.LHS,self.RHS)
-			self.U = self.C @ x + self.dirichlet
+			self.U = self.C@x + self.dirichlet
+			#self.U = self.spC.dot(x) + self.dirichlet
 			self.solved = True
 		except:
 			print('something went wrong')
@@ -594,11 +652,15 @@ class Projection(Solver):
 	def solve(self):
 		self._build_mass()
 		self._build_force()
+		#self.LHS = self.spC.T @ self.spM @ self.spC
+		#self.RHS = self.spC.T @ (self.F - self.spM @ self.dirichlet)
 		self.LHS = self.C.T @ self.M @ self.C
 		self.RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
 		try:
+			#x,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
+			#assert conv==0
 			x = la.solve(self.LHS,self.RHS)
-			self.U = self.C @ x + self.dirichlet
+			self.U = self.C@x + self.dirichlet
 			self.solved = True
 		except:
 			print('something went wrong')
