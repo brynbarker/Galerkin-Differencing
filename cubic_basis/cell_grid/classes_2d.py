@@ -274,7 +274,7 @@ class Solver:
 		self.spM = sparse.coo_array((Md,(Mr,Mc)),shape=(num_dofs,num_dofs)).tocsc()
 
 
-	def _setup_constraints(self,alt=0):
+	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
 		self.C_full = np.eye(num_dofs)
@@ -362,11 +362,12 @@ class Solver:
 	def solve(self):
 		print('virtual not overwritten')
 
-	def vis_constraints(self):
+	def vis_constraints(self,alt=False):
 		fig,ax = plt.subplots(1,figsize=(16,24))
 		markers = np.array([['s','^'],['v','o']])
 		
 		v12,v32 = 9/16,-1/16
+		if alt: v12,v32 =-1/16,9/16
 		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
 		w = [-1,-v12/v32]+[vh*vv/v32 for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
 		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']

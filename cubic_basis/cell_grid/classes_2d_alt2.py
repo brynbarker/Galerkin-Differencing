@@ -1,213 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import scipy.sparse.linalg as sla
+from scipy import sparse
 
-from cubic_basis.nodal_grid.helpers_2d import *
-from cubic_basis.nodal_grid.shape_functions_2d import phi3_dxx
+from cubic_basis.cell_grid.helpers_2d import *
+from cubic_basis.cell_grid.shape_functions_2d import phi3_dxx
 
+keys = [None,0,1]
+id = 0
+LOOKUP = {}
+for xk in keys:
+    temp = {}
+    for yk in keys:
+        temp[yk] = id
+        id += 1
+    LOOKUP[xk] = temp
 
-class Node:
-	def __init__(self,ID,j,i,x,y,h):
-		self.ID = ID
-		self.j = j
-		self.i = i
-		self.x = x
-		self.y = y
-		self.h = h
-		self.elements = {}
+from cubic_basis.cell_grid.classes_2d import Laplace
 
-	def add_element(self,e):
-		if e.ID not in self.elements.keys():
-			self.elements[e.ID] = e
-
-class Element:
-	def __init__(self,ID,j,i,x,y,h):
-		self.ID = ID
-		self.j = j
-		self.i = i
-		self.x = x
-		self.y = y
-		self.h = h
-		self.dof_ids = []
-		self.dof_list = []
-		self.fine = False
-		self.Interface = False
-		self.dom = [x,x+h,y,y+h]
-		self.plot = [[x,x+h,x+h,x,x],
-					 [y,y,y+h,y+h,y]]
-
-	def add_dofs(self,strt,xlen):
-		if len(self.dof_ids) != 0:
-			return
-		for ii in range(4):
-			for jj in range(4):
-				self.dof_ids.append(strt+xlen*ii+jj)
-		return
-
-	def update_dofs(self,dofs):
-		if len(self.dof_list) != 0:
-			return
-		for dof_id in self.dof_ids:
-			dof = dofs[dof_id]
-			dof.add_element(self)
-			self.dof_list.append(dof)
-		return
-
-	def set_fine(self):
-		self.fine = True
-	def set_interface(self):
-		self.interface = True
-
-class Mesh:
-	def __init__(self,N):
-		self.N = N # number of fine elements 
-				   # from x=0.5 to x=1.0
-		self.h = 0.5/N
-		self.dofs = {}
-		self.elements = []
-		self.boundaries = []
-		self.interface = [[],[]]
-		self.periodic = [[],[]]
-		self.interface_offset = [[],[],[],[],[],[],[],[]]
-		
-		self._make_coarse()
-		self._make_fine()
-
-		self._update_elements()
-
-	def _make_coarse(self):
-		H = self.h*2
-		xdom = np.linspace(0-H,0.5+H,int(self.N/2)+3)
-		ydom = np.linspace(-H,1+H,self.N+3)
-
-		xlen,ylen = len(xdom),len(ydom)
-
-		dof_id,e_id = 0,0
-		for i,y in enumerate(ydom):
-			for j,x in enumerate(xdom):
-				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
-
-				if (0<=x<.5) and (0<=y<1.):
-					strt = dof_id-1-xlen
-					element = Element(e_id,j,i,x,y,H)
-					element.add_dofs(strt,xlen)
-					self.elements.append(element)
-					e_id += 1
-
-				if x==0.:
-					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
-					self.periodic[0].append(dof_id)
-				
-				if (x == 0.5) and (0 <= y < 1):
-					self.interface[0].append(dof_id)
-
-				if (.5-2*H <= x) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0].append(dof_id)
-					elif x < .5: self.interface_offset[1].append(dof_id)
-					elif x == .5: self.interface_offset[2].append(dof_id)
-					else: self.interface_offset[3].append(dof_id)
-
-				dof_id += 1
-
-		self.n_coarse_dofs = dof_id
-		self.n_coarse_els = e_id
-
-	def _make_fine(self):
-		H = self.h
-		xdom = np.linspace(0.5-H,1.+H,self.N+3)
-		ydom = np.linspace(-H,1+H,2*self.N+3)
-
-		xlen,ylen = len(xdom),len(ydom)
-
-		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
-		for i,y in enumerate(ydom):
-			for j,x in enumerate(xdom):
-				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
-
-				if (0.5<=x<1.) and (0<=y<1.):
-					strt = dof_id-1-xlen
-					element = Element(e_id,j,i,x,y,H)
-					element.add_dofs(strt,xlen)
-					element.set_fine()
-					self.elements.append(element)
-					e_id += 1
-
-				if x==1.:# and (0 <= y < 1):#or y==0. or y==1:
-					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
-					self.periodic[1].append(dof_id)
-				if (x == 0.5) and (0 <= y < 1):
-					self.interface[1].append(dof_id)
-				if (x <= .5+2*H) and (0 <= y <1):
-					if x < .5: self.interface_offset[4].append(dof_id)
-					elif x == .5: self.interface_offset[5].append(dof_id)
-					elif x < .5+2*H: self.interface_offset[6].append(dof_id)
-					else: self.interface_offset[7].append(dof_id)
-
-				dof_id += 1
-
-	def _update_elements(self):
-		for e in self.elements:
-			e.update_dofs(self.dofs)
-
-class SolverAlt2:
-	def __init__(self,N,u,f=None,qpn=5):
-		self.N = N
-		self.ufunc = u
-		self.ffunc = f #needs to be overwritten 
-		self.qpn = qpn
-
-		self.mesh = Mesh(N)
-		self.h = self.mesh.h
-
-		self.solved = False
-		self.C = None
-		self.Id = None
-
-	def _build_force(self):
-		num_dofs = len(self.mesh.dofs)
-		self.F = np.zeros(num_dofs)
-
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
-
-		for e in self.mesh.elements:
-
-			for test_id,dof in enumerate(e.dof_list):
-
-				test_ind = id_to_ind[test_id]
-				phi_test = lambda x,y: phi3_2d_ref(x,y,e.h,test_ind)
-				func = lambda x,y: phi_test(x,y) * self.ffunc(x+e.x,y+e.y)
-				val = gauss(func,0,e.h,0,e.h,self.qpn)
-
-				self.F[dof.ID] += val
-
-	def _build_stiffness(self):
-		num_dofs = len(self.mesh.dofs)
-		self.K = np.zeros((num_dofs,num_dofs))
-
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
-		
-		base_k = local_stiffness(self.h)
-
-		for e in self.mesh.elements:
-			for test_id,dof in enumerate(e.dof_list):
-				self.K[dof.ID,e.dof_ids] += base_k[test_id]
-
-
-	def _build_mass(self):
-		num_dofs = len(self.mesh.dofs)
-		self.M = np.zeros((num_dofs,num_dofs))
-
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
-		
-		base_m = local_mass(self.h,qpn=self.qpn)
-
-		for e in self.mesh.elements:
-			scale = 1 if e.fine else 4
-			for test_id,dof in enumerate(e.dof_list):
-				self.M[dof.ID,e.dof_ids] += base_m[test_id] * scale
-
+class LaplaceAlt2(Laplace):
+	def __init__(self,N,u,f,qpn=5):
+		super().__init__(N,u,f,qpn)
 
 	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
@@ -215,185 +29,102 @@ class SolverAlt2:
 		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
 
-		c_side = np.array(self.mesh.interface_offset[:4])
-		f_side = np.array(self.mesh.interface_offset[4:])
-		#c_side = np.array(self.mesh.interface_offset[:4])
-		#f_side = np.array(self.mesh.interface_offset[4:])
-		#to_set = np.array([c_side[-1],f_side[0,::2]])
-		#to_use = np.vstack((c_side[:3],f_side[2:,::2]))
+		for j in range(2):
+			c_side = np.array(self.mesh.interface_offset[j][:4])
+			f_side = np.array(self.mesh.interface_offset[j][4:])
 
-		#self.Id[to_set.flatten()] = 1
-		#self.C_full[to_set.flatten()] *= 0
+			v12,v32 = 9/16,-1/16
+			v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
 
-		#mat = np.array([[-1/3,5/3,-5,16/3,-2/3],[-1/12,2/3,1/4,1/3,-1/6]])
-		#for ind in range(5):
-		#	self.C_full[to_set[0],to_use[ind]] = mat[0,ind]
-		#	self.C_full[to_set[1],to_use[ind]] = mat[1,ind]
+			f_len, c_len = len(f_side[0]), len(c_side[-1])
+			sys_len = f_len+c_len
+			sys = np.eye(sys_len) ## sys section A and D
+			rhs_len = 3*sys_len
+			rhs = np.zeros((sys_len,rhs_len))
 
-		c_inter,f_inter = self.mesh.interface
-		self.Id[f_inter] = 1
-		self.C_full[f_inter] *= 0
+			for c_col,vhorz in enumerate([v32,v12,v12]):
+				for f_row in range(f_len):
+					c_row = int(f_row/2)
+					if f_row%2:
+						rhs[c_row,c_col*c_len+c_row] = -vhorz/v32 ## rhs section A
+						vverts, offsets = [v74,v34,v14,v54],[2,1,0,-1]
+						f_row_shifted = f_row-2
+						if f_row_shifted < 0: f_row_shifted += f_len
+					else:
+						vverts, offsets = [v54,v14,v34,v74],[1,0,-1,-2]
+						f_row_shifted = f_row+2
+						if f_row_shifted >= f_len: f_row_shifted -= f_len
 
-        # collocated are set to the coarse node
-		self.C_full[f_inter[::2],c_inter[:]] = 1
+					sys[c_col,c_len+f_row] = -v12 ## sys section B
+					sys[c_col,c_len+f_row_shifted] = -v32 ## sys section B
+					
+					for vvert, offset in zip(vverts,offsets):
+						c_row_shifted = c_row-offset
+						if c_row_shifted < 0: c_row_shifted+=c_len
+						if c_row_shifted >= c_len: c_row_shifted-=c_len
+						rhs[c_len+f_row,c_col*c_len+c_row_shifted] = vvert*vhorz/v32 ## rhs section C
+						if c_col == 0:
+							sys[c_len+f_row,c_row_shifted] = -vvert ## sys section C
 
-		v1, v3 = phi3(1/2,1), phi3(3/2,1)
+			for f_col,vhorz in enumerate([v12,v12,v32]):
+				for f_row in range(f_len):
+					rhs[c_len+f_row,3*c_len+f_col*f_len+f_row] = -vhorz/v32 ## rhs section D
+					if f_row%2:
+						f_row_shifted = f_row-2
+						if f_row_shifted < 0: f_row_shifted += f_len
+					else:
+						f_row_shifted = f_row+2
+						if f_row_shifted >= f_len: f_row_shifted -= f_len
+					c_row = int(f_row/2)
+					rhs[c_row,3*c_len+f_col*f_len+f_row] = vhorz*v12/v32 ## rhs section B
+					rhs[c_row,3*c_len+f_col*f_len+f_row_shifted] = vhorz ## rhs section B
+					
+			self.sys = sys
+			self.rhs = rhs
+					
+			self.Id[f_side[0]] = 1
+			self.Id[c_side[-1]] = 1
+			self.C_full[f_side[0]] *= 0
+			self.C_full[c_side[-1]] *= 0
 
-		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
-			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
+			coefs = la.inv(sys) @ rhs
+			self.coefs = coefs
+			rhs_index_to_id = []
+			for i in range(3):
+				rhs_index_to_id += [c_ind for c_ind in c_side[i]]
+			for i in range(3):
+				rhs_index_to_id += [f_ind for f_ind in f_side[i+1]]
 
-		### add in fine square ghost
-		self.Id[f_side[0]] = 1
-		self.C_full[f_side[0]] *= 0
-		for ind,v in enumerate([v3,v1,v1,v3]):#,[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
-			self.C_full[f_side[0,::2],c_side[ind]] = v
-			for v2,offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):
-				self.C_full[f_side[0,1::2],np.roll(c_side[ind],offset)] = v*v2
+			for c_row,c_ind in enumerate(c_side[-1]):
+				self.C_full[c_ind,rhs_index_to_id] += coefs[c_row]
 
-		self.Id[c_side[-1]] = 1
-		self.C_full[c_side[-1]] *= 0
-		self.C_full[c_side[-1],f_side[-1,::2]] = 1
-		for (cind,find) in zip(c_side[-1],f_side[-1,::2]):
-			self.C_full[:,cind] += self.C_full[:,find]
-    
+			for f_row,f_ind in enumerate(f_side[0]):
+				self.C_full[f_ind,rhs_index_to_id] += coefs[c_len+f_row]
+
+		for level in range(2):
+			# lower are true dofs, upper are ghosts
+			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
+			ghost_list = np.array([b0,b1,t2,t3])
+			self.C_full[ghost_list] *= 0.
+			self.Id[ghost_list] = 1.
+			Ds, ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
+			for (D,d) in zip(Ds,ds):
+				self.C_full[d,D] = 1
+				self.C_full[:,D] += self.C_full[:,d]
+				self.C_full[d,:] = self.C_full[D,:]
+				# for ind in [0,1,2,3,-4,-3,-2,-1]:
+				# 	self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
+				# 	self.C_full[d[ind],:] = self.C_full[D[ind],:]
+			
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
 			self.dirichlet[dof_id] = self.ufunc(x,y)
 
-		for level in range(2):
-			# lower are true dofs, upper are ghosts
-			b0,B1,B2,T0,t1,t2 = np.array(self.mesh.periodic[level]).reshape((6,-1))
-			ghost_list = np.array([b0,t1,t2])
-			self.C_full[ghost_list] *= 0.
-			self.Id[ghost_list] = 1.
-			Ds, ds = [T0,B1,B2],[b0,t1,t2]
-			for (D,d) in zip(Ds,ds):
-				self.C_full[d,D] = 1
-				for ind in [0,1,2,3,-4,-3,-2,-1]:
-					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-					self.C_full[d[ind],:] = self.C_full[D[ind],:]
-
 		self.true_dofs = list(np.where(self.Id==0)[0])
 		self.C = self.C_full[:,self.true_dofs]
-
-	def solve(self):
-		print('virtual not overwritten')
+		return
 
 	def vis_constraints(self):
-		if self.C is not None:
-			vis_constraints(self.C,self.mesh.dofs)
-		else:
-			print('Constraints have not been set')
-
-	def vis_mesh(self):
-		markers = ['o','^']
-		colors = ['grey','C1']
-		for dof in self.mesh.dofs.values():
-			m = markers[dof.h==self.h]
-			c = colors[int(self.Id[dof.ID])]
-			plt.scatter(dof.x,dof.y,marker=m,c=c)
-		plt.show()
-
-	def vis_dofs(self):
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for dof in self.mesh.dofs.values():
-			blocks = []
-			dots = [[dof.x],[dof.y]]
-			for e in dof.elements.values():
-				blocks.append(e.plot)
-			data.append([blocks,dots])
-
-		return animate_2d([frame],data,16)
-
-	def vis_elements(self):
-		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
-		data = []
-		for e in self.mesh.elements:
-			blocks = [e.plot]
-			dots = [[],[]]
-			for dof in e.dof_list:
-				dots[0].append(dof.x)
-				dots[1].append(dof.y)
-			data.append([blocks,dots])
-
-		return animate_2d([frame],data,16)
-
-	def xy_to_e(self,x,y):
-		n_x_els = [self.N/2,self.N]
-        
-		x -= (x==1)*1e-12
-		y -= (y==1)*1e-12
-		fine = True if x >= 0.5 else False
-		x_ind = int((x-fine*.5)/((2-fine)*self.h))
-		y_ind = int(y/((2-fine)*self.h))
-		el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
-		e = self.mesh.elements[int(el_ind)]
-		assert x >= min(e.plot[0]) and x <= max(e.plot[0])
-		assert y >= min(e.plot[1]) and y <= max(e.plot[1])
-		return e
-
-	def sol(self, weights=None):
-
-		if weights is None:
-			assert self.solved
-			weights = self.U
-
-		def solution(x,y):
-			e = self.xy_to_e(x,y)
-
-			id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
-			val = 0
-			for local_id, dof in enumerate(e.dof_list):
-				local_ind = id_to_ind[local_id]
-				val += weights[dof.ID]*phi3_2d_eval(x,y,dof.h,dof.x,dof.y)
-			
-			return val
-		return solution
-
-	def error(self,qpn=5):
-		uh = self.sol()
-		l2_err = 0.
-		for e in self.mesh.elements:
-			func = lambda x,y: (self.ufunc(x,y)-uh(x,y))**2
-			val = gauss(func,e.x,e.x+e.h,e.y,e.y+e.h,qpn)
-			l2_err += val
-		return np.sqrt(l2_err)
-
-class LaplaceAlt2(SolverAlt2):
-	def __init__(self,N,u,f,qpn=5):
-		super().__init__(N,u,f,qpn)
-		self._setup_constraints()
-
-	def solve(self):
-		self._build_stiffness()
-		self._build_force()
-		LHS = self.C.T @ self.K @ self.C
-		RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.K @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
-		self.solved = True
-
-
-class ProjectionAlt2(SolverAlt2):
-	def __init__(self,N,u,qpn=5):
-		super().__init__(N,u,u,qpn)
-
-	def solve(self):
-		self._build_mass()
-		self._build_force()
-		self._setup_constraints()
-		LHS = self.C.T @ self.M @ self.C
-		RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.M @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
-		self.solved = True
-		return x
-
-
+		return super().vis_constraints(alt=True)
