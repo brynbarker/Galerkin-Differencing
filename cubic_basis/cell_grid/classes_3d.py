@@ -4,8 +4,8 @@ import scipy.linalg as la
 import scipy.sparse.linalg as sla
 from scipy import sparse
 
-from cubic_basis.cell_grid.helpers_2d import *
-from cubic_basis.cell_grid.shape_functions_2d import phi3_dxx
+from cubic_basis.cell_grid.helpers_3d import *
+from cubic_basis.cell_grid.shape_functions_3d import phi3_dxx
 
 keys = [None,0,1]
 id = 0
@@ -18,12 +18,14 @@ for xk in keys:
     LOOKUP[xk] = temp
 
 class Node:
-	def __init__(self,ID,j,i,x,y,h):
+	def __init__(self,ID,j,i,k,x,y,z,h):
 		self.ID = ID
 		self.j = j
 		self.i = i
+		self.k = k
 		self.x = x
 		self.y = y
+		self.z = z
 		self.h = h
 		self.elements = {}
 
@@ -32,28 +34,30 @@ class Node:
 			self.elements[e.ID] = e
 
 class Element:
-	def __init__(self,ID,j,i,x,y,h):
+	def __init__(self,ID,j,i,k,x,y,z,h):
 		self.ID = ID
 		self.j = j
 		self.i = i
+		self.k = k
 		self.x = x
 		self.y = y
-		self.h = h
+		self.z = z
+	    self.h = h
 		self.dof_ids = []
 		self.dof_list = []
 		self.fine = False
 		self.Interface = False
 		self.side = [None,None]
-		self.dom = [x,x+h,y,y+h]
-		self.plot = [[x,x+h,x+h,x,x],
-					 [y,y,y+h,y+h,y]]
+		self.dom = [x,x+h,y,y+h,z,z+h]
 
-	def add_dofs(self,strt,xlen):
+	def add_dofs(self,strt,xlen,ylen):
 		if len(self.dof_ids) != 0:
 			return
 		for ii in range(4):
 			for jj in range(4):
-				self.dof_ids.append(strt+xlen*ii+jj)
+				for kk in range(4):
+					shift = xlen*ylen*kk+xlen*ii
+				    self.dof_ids.append(strt+shift+jj)
 		return
 
 	def update_dofs(self,dofs):
@@ -67,17 +71,14 @@ class Element:
 
 	def set_fine(self):
 		self.fine = True
-	def set_interface(self,xside,yside):
+	def set_interface(self,xside,yside,zside):
 		self.interface = True
-		self.side = [xside,yside]
+		self.side = [xside,yside,zside]
  
-		loc = [self.x,self.y]
-		for dim,side in enumerate([xside,yside]):
+		loc = [self.x,self.y,self.z]
+		for dim,side in enumerate(self.side):
 			if side is not None:
 				self.dom[2*dim+1-side] = loc[dim]+self.h/2
-		x0,x1,y0,y1 = self.dom
-		self.plot = [[x0,x1,x1,x0,x0],
-					 [y0,y0,y1,y1,y0]]
 
 class Mesh:
 	def __init__(self,N):
@@ -88,8 +89,8 @@ class Mesh:
 		self.elements = []
 		self.boundaries = []
 		self.periodic = [[],[]]
-		self.interface_offset = {0:[[] for _ in range(8)],
-						    	 1:[[] for _ in range(8)]}
+		self.interface_offset = {0:[[] for _ in range(16)],
+						    	 1:[[] for _ in range(16)]}
 		
 		self._make_coarse()
 		self._make_fine()
@@ -100,44 +101,47 @@ class Mesh:
 		H = self.h*2
 		xdom = np.linspace(0-3*H/2,0.5+3*H/2,int(self.N/2)+4)
 		ydom = np.linspace(-3*H/2,1+3*H/2,self.N+4)
+		zdom = np.linspace(-3*H/2,1+3*H/2,self.N+4)
 
-		xlen,ylen = len(xdom),len(ydom)
+		xlen,ylen,zlen = len(xdom),len(ydom), len(zdom)
 
-		i_check,j_check = [1,ylen-3],[1,xlen-3]
+		i_check,j_check,k_check = [1,ylen-3],[1,xlen-3],[1,zlen-3]
 
 		dof_id,e_id = 0,0
-		for i,y in enumerate(ydom):
-			yside = i==1 if i in i_check else None
-			for j,x in enumerate(xdom):
-				interface_element = i in i_check or j in j_check
-				xside = j==1 if j in j_check else None
-				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
+        for k,z in enumerate(zdom):
+            zside = k==1 if k in k_check else None
+		    for i,y in enumerate(ydom):
+		    	yside = i==1 if i in i_check else None
+		    	for j,x in enumerate(xdom):
+		    		interface_element = i in i_check or j in j_check or k in k_check
+		    		xside = j==1 if j in j_check else None
+		    		self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (-H<x<.5) and (-H<y<1.):
-					strt = dof_id-1-xlen
-					element = Element(e_id,j,i,x,y,H)
-					element.add_dofs(strt,xlen)
-					self.elements.append(element)
-					if interface_element: element.set_interface(xside,yside)
-					e_id += 1
+		    		if (-H<x<.5) and (-H<y<1.) and (-H<z<1.):
+		    			strt = dof_id-1-xlen
+		    			element = Element(e_id,j,i,k,x,y,z,H)
+		    			element.add_dofs(strt,xlen,ylen)
+		    			self.elements.append(element)
+		    			if interface_element: element.set_interface(xside,yside,zside)
+		    			e_id += 1
 
-				#if x==H/2:
-				#	self.boundaries.append(dof_id)
-				if y < 2*H or y > 1.-2*H:
-					self.periodic[0].append(dof_id)
-				
-				if (.5-2*H <= x) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0][0].append(dof_id)
-					elif x < .5: self.interface_offset[0][1].append(dof_id)
-					elif x > .5+H: self.interface_offset[0][3].append(dof_id)
-					else: self.interface_offset[0][2].append(dof_id)
-				if (2*H >= x) and (0 <= y <1):
-					if x < -H: self.interface_offset[1][3].append(dof_id)
-					elif x < 0: self.interface_offset[1][2].append(dof_id)
-					elif x > H: self.interface_offset[1][0].append(dof_id)
-					else: self.interface_offset[1][1].append(dof_id)
+		    		#if x==H/2:
+		    		#	self.boundaries.append(dof_id)
+		    		if y < 2*H or y > 1.-2*H:
+		    			self.periodic[0].append(dof_id)
+    
+		    		if (.5-2*H <= x) and (0 <= y <1):
+		    			if x < .5-H: self.interface_offset[0][0].append(dof_id)
+		    			elif x < .5: self.interface_offset[0][1].append(dof_id)
+		    			elif x > .5+H: self.interface_offset[0][3].append(dof_id)
+		    			else: self.interface_offset[0][2].append(dof_id)
+		    		if (2*H >= x) and (0 <= y <1):
+		    			if x < -H: self.interface_offset[1][3].append(dof_id)
+		    			elif x < 0: self.interface_offset[1][2].append(dof_id)
+		    			elif x > H: self.interface_offset[1][0].append(dof_id)
+		    			else: self.interface_offset[1][1].append(dof_id)
 
-				dof_id += 1
+		    		dof_id += 1
 
 		self.n_coarse_dofs = dof_id
 		self.n_coarse_els = e_id
@@ -190,7 +194,7 @@ class Mesh:
 			e.update_dofs(self.dofs)
 
 class Solver:
-	def __init__(self,N,u,f=None,qpn=5,alt=0):
+	def __init__(self,N,u,f=None,qpn=5):
 		self.N = N
 		self.ufunc = u
 		self.ffunc = f #needs to be overwritten 
@@ -202,7 +206,6 @@ class Solver:
 		self.solved = False
 		self.C = None
 		self.Id = None
-		self.alt = alt
 
 		self._setup_constraints()
 		self.quad_vals = compute_gauss(qpn)
@@ -282,35 +285,31 @@ class Solver:
 		self.dirichlet = np.zeros(num_dofs)
 		Cr, Cc, Cd = [],[],[]
 
-		v12,v32 = 9/16,-1/16
-		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
-		alt_to_scale = {0:v32,1:v12,2:v12,3:v32}
-		scale = alt_to_scale[self.alt]
-
 		for j in range(2):
 			c_side = np.array(self.mesh.interface_offset[j][:4])
 			f_side = np.array(self.mesh.interface_offset[j][4:])
 
+			v12,v32 = 9/16,-1/16
+			v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
 
-			self.Id[f_side[self.alt]] = 1
-			self.C_full[f_side[self.alt]] *= 0
+			self.Id[f_side[0]] = 1
+			self.C_full[f_side[0]] *= 0
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
-					self.C_full[f_side[self.alt][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
-					Cr += list((f_side[self.alt][::2]).flatten())
+					self.C_full[f_side[0][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+					Cr += list((f_side[0][::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/scale]*(f_side[self.alt][::2]).size
+					Cd += [vvert*vhorz/v32]*(f_side[0][::2]).size
 				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
-					self.C_full[f_side[self.alt][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
-					Cr += list((f_side[self.alt][1::2]).flatten())
+					self.C_full[f_side[0][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v32
+					Cr += list((f_side[0][1::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/scale]*(f_side[self.alt][1::2]).size
-			for ind,vhorz in enumerate([v32,v12,v12,v32]):
-				if ind != self.alt:
-					self.C_full[f_side[self.alt],f_side[ind]] = -vhorz/scale
-					Cr += list((f_side[self.alt]).flatten())
-					Cc += list((f_side[ind]).flatten())
-					Cd += [-vhorz/scale]*(f_side[self.alt]).size
+					Cd += [vvert*vhorz/v32]*(f_side[0][1::2]).size
+			for ind,vhorz in enumerate([v12,v12,v32]):
+				self.C_full[f_side[0],f_side[ind+1]] = -vhorz/v32
+				Cr += list((f_side[0]).flatten())
+				Cc += list((f_side[ind+1]).flatten())
+				Cd += [-vhorz/v32]*(f_side[0]).size
 
 
 		for level in range(2):
@@ -372,11 +371,9 @@ class Solver:
 		markers = np.array([['s','^'],['v','o']])
 		
 		v12,v32 = 9/16,-1/16
-		alt_to_scale = {0:v32,1:v12,2:v12,3:v32}
-		scale = alt_to_scale[self.alt]
-
+		if alt: v12,v32 =-1/16,9/16
 		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
-		w = [-v32/scale,-v12/scale]+[vh*vv/scale for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
+		w = [-1,-v12/v32]+[vh*vv/v32 for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
 		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']
 		colors += ['skyblue','limegreen','yellow','salmon','darkgoldenrod']
 		cols = {v:colors[i] for (i,v) in enumerate(w)}
@@ -630,17 +627,15 @@ class Solver:
 		return np.sqrt(l2_err)
 
 class Laplace(Solver):
-	def __init__(self,N,u,f,qpn=5,alt=0):
-		super().__init__(N,u,f,qpn,alt)
+	def __init__(self,N,u,f,qpn=5):
+		super().__init__(N,u,f,qpn)
 		self._setup_constraints()
 
-	def solve(self,construct_only=False):
+	def solve(self):
 		self._build_stiffness()
 		self._build_force()
 		self.LHS = self.C.T @ self.K @ self.C
 		self.RHS = self.C.T @(-self.F - self.K @ self.dirichlet)
-		if construct_only:
-			return
 		#self.LHS = self.spC.T @ self.spK @ self.spC
 		#self.RHS = self.spC.T.dot(-self.F - self.spK.dot(self.dirichlet))
 		try:

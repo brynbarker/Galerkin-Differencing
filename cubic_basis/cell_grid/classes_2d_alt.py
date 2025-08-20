@@ -20,8 +20,9 @@ for xk in keys:
 from cubic_basis.cell_grid.classes_2d import Laplace, Projection
 
 class LaplaceAlt(Laplace):
-	def __init__(self,N,u,f,qpn=5):
+	def __init__(self,N,u,f,qpn=5,alt=1):
 		super().__init__(N,u,f,qpn)
+		self.alt = alt
 
 	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
@@ -30,6 +31,9 @@ class LaplaceAlt(Laplace):
 		self.dirichlet = np.zeros(num_dofs)
 		Cr, Cc, Cd = [],[],[]
 
+		alt_to_scale = {0:v32,1:v12,2:v12,3:v32}
+		scale = alt_to_scale[self.alt]
+
 		for j in range(2):
 			c_side = np.array(self.mesh.interface_offset[j][:4])
 			f_side = np.array(self.mesh.interface_offset[j][4:])
@@ -37,24 +41,25 @@ class LaplaceAlt(Laplace):
 			v12,v32 = 9/16,-1/16
 			v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
 
-			self.Id[f_side[1]] = 1
-			self.C_full[f_side[1]] *= 0
+			self.Id[f_side[self.alt]] = 1
+			self.C_full[f_side[self.alt]] *= 0
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
-					self.C_full[f_side[1][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v12
-					Cr += list((f_side[1][::2]).flatten())
+					self.C_full[f_side[self.alt][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
+					Cr += list((f_side[self.alt][::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/v12]*(f_side[1][::2]).size
+					Cd += [vvert*vhorz/scale]*(f_side[self.alt][::2]).size
 				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
-					self.C_full[f_side[1][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/v12
-					Cr += list((f_side[1][1::2]).flatten())
+					self.C_full[f_side[self.alt][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
+					Cr += list((f_side[self.alt][1::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/v12]*(f_side[1][1::2]).size
-			for ind,vhorz in zip([0,2,3],[v32,v12,v32]):
-				self.C_full[f_side[1],f_side[ind]] = -vhorz/v12
-				Cr += list((f_side[1]).flatten())
-				Cc += list((f_side[ind]).flatten())
-				Cd += [-vhorz/v12]*(f_side[1]).size
+					Cd += [vvert*vhorz/scale]*(f_side[self.alt][1::2]).size
+			for ind,vhorz in zip([0,1,2,3],[v32,v12,v12,v32]):
+				if ind != self.alt:
+					self.C_full[f_side[self.alt],f_side[ind]] = -vhorz/scale
+					Cr += list((f_side[self.alt]).flatten())
+					Cc += list((f_side[ind]).flatten())
+					Cd += [-vhorz/scale]*(f_side[self.alt]).size
 
 
 		for level in range(2):

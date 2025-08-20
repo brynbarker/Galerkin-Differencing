@@ -20,8 +20,9 @@ for xk in keys:
 from cubic_basis.cell_grid.classes_2d import Laplace
 
 class LaplaceAlt2(Laplace):
-	def __init__(self,N,u,f,qpn=5):
+	def __init__(self,N,u,f,qpn=5,alt=1):
 		super().__init__(N,u,f,qpn)
+		self.alt = alt
 
 	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
