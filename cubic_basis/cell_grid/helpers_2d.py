@@ -5,6 +5,16 @@ from IPython.display import HTML
 
 from cubic_basis.cell_grid.shape_functions_2d import *
 
+def replace(rows,cols,data,i_out,i_in):
+	# i_out is set to i_in but i_in is a ghost
+	new_rows,new_cols,new_data = [],[],[]
+	for (r,c,d) in zip(rows,cols,data):
+		if r == i_in:
+			new_rows.append(i_out)
+			new_cols.append(c)
+			new_data.append(d)
+	return rows+new_rows, cols+new_cols, data+new_data
+
 def indswap(l,i_old,i_new):
 	for (i,l_ind) in enumerate(l):
 		if l_ind == i_old:

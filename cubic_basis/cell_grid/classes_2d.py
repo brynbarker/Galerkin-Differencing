@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import scipy.linalg as la
 import scipy.sparse.linalg as sla
 from scipy import sparse
+from time import time
 
 from cubic_basis.cell_grid.helpers_2d import *
 from cubic_basis.cell_grid.shape_functions_2d import phi3_dxx
@@ -80,7 +81,7 @@ class Element:
 					 [y0,y0,y1,y1,y0]]
 
 class Mesh:
-	def __init__(self,N):
+	def __init__(self,N,alt=0):
 		self.N = N # number of fine elements 
 				   # from x=0.5 to x=1.0
 		self.h = 0.5/N
@@ -88,20 +89,22 @@ class Mesh:
 		self.elements = []
 		self.boundaries = []
 		self.periodic = [[],[]]
+		self.periodic_sp = []
 		self.interface_offset = {0:[[] for _ in range(8)],
 						    	 1:[[] for _ in range(8)]}
 		
-		self._make_coarse()
-		self._make_fine()
+		self._make_coarse(alt)
+		self._make_fine(alt)
 
 		self._update_elements()
 
-	def _make_coarse(self):
+	def _make_coarse(self,alt=0):
 		H = self.h*2
 		xdom = np.linspace(0-3*H/2,0.5+3*H/2,int(self.N/2)+4)
 		ydom = np.linspace(-3*H/2,1+3*H/2,self.N+4)
 
 		xlen,ylen = len(xdom),len(ydom)
+		y_per_map = {0:ylen-4,1:ylen-3,ylen-1:3,ylen-2:2}
 
 		i_check,j_check = [1,ylen-3],[1,xlen-3]
 
@@ -121,33 +124,34 @@ class Mesh:
 					if interface_element: element.set_interface(xside,yside)
 					e_id += 1
 
-				#if x==H/2:
-				#	self.boundaries.append(dof_id)
-				if y < 2*H or y > 1.-2*H:
-					self.periodic[0].append(dof_id)
-				
+				mask = False
 				if (.5-2*H <= x) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0][0].append(dof_id)
-					elif x < .5: self.interface_offset[0][1].append(dof_id)
-					elif x > .5+H: self.interface_offset[0][3].append(dof_id)
-					else: self.interface_offset[0][2].append(dof_id)
+					mask = True
+					loc = j+4-xlen
+					self.interface_offset[0][loc].append(dof_id)
 				if (2*H >= x) and (0 <= y <1):
-					if x < -H: self.interface_offset[1][3].append(dof_id)
-					elif x < 0: self.interface_offset[1][2].append(dof_id)
-					elif x > H: self.interface_offset[1][0].append(dof_id)
-					else: self.interface_offset[1][1].append(dof_id)
+					mask = True
+					loc = 3-j
+					self.interface_offset[1][loc].append(dof_id)
+				if y < 2*H or y > 1.-2*H:
+					if y < 0 or y >= 1:	
+						yind = y_per_map[i]
+						fill_id = yind*xlen+j
+						self.periodic_sp.append([dof_id,fill_id,mask,False])
+					self.periodic[0].append(dof_id)
 
 				dof_id += 1
 
 		self.n_coarse_dofs = dof_id
 		self.n_coarse_els = e_id
 
-	def _make_fine(self):
+	def _make_fine(self,alt=0):
 		H = self.h
 		xdom = np.linspace(0.5-3*H/2,1.+3*H/2,self.N+4)
 		ydom = np.linspace(-3*H/2,1+3*H/2,2*self.N+4)
 
 		xlen,ylen = len(xdom),len(ydom)
+		y_per_map = {0:ylen-4,1:ylen-3,ylen-1:3,ylen-2:2}
 
 		i_check,j_check = [1,ylen-3],[1,xlen-3]
 
@@ -168,20 +172,27 @@ class Mesh:
 					if interface_element: element.set_interface(xside,yside)
 					e_id += 1
 
+				mask,loc = False, 1e4
+				if (x <= .5+2*H):# and (0 <= y <1):
+					loc = j+4
+					if 0<=y<1:
+						self.interface_offset[0][loc].append(dof_id)
+					mask = (loc-4) != alt
+				if (x >= 1-2*H):# and (0 <= y <1):
+					loc = 3-(j-xlen)
+					if (0<=y<1):
+						self.interface_offset[1][loc].append(dof_id)
+					mask = (loc-4) != alt
 				if x==1-5*H/2:
 					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
-					self.periodic[1].append(dof_id)
-				if (x <= .5+2*H) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0][4].append(dof_id)
-					elif x < .5: self.interface_offset[0][5].append(dof_id)
-					elif x < .5+H: self.interface_offset[0][6].append(dof_id)
-					else: self.interface_offset[0][7].append(dof_id)
-				if (x >= 1-2*H) and (0 <= y <1):
-					if x < 1-H: self.interface_offset[1][7].append(dof_id)
-					elif x < 1: self.interface_offset[1][6].append(dof_id)
-					elif x < 1+H: self.interface_offset[1][5].append(dof_id)
-					else: self.interface_offset[1][4].append(dof_id)
+				if y < 2*H or y >= 1-2*H:
+					if y < 0 or y >= 1:
+						if loc != alt:
+							yind = y_per_map[i]
+							fill_id = yind*xlen+j+self.n_coarse_dofs
+							self.periodic_sp.append([dof_id,fill_id,mask,loc-4==alt])
+					if x != 1-5*H/2:
+						self.periodic[1].append(dof_id)
 
 				dof_id += 1
 
@@ -228,10 +239,8 @@ class Solver:
 
 	def _build_stiffness(self):
 		num_dofs = len(self.mesh.dofs)
-		self.K = np.zeros((num_dofs,num_dofs))
 		Kr, Kc, Kd = [],[],[]
 
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
 		ks = []
 		for j in [None,0,1]:
@@ -246,16 +255,13 @@ class Solver:
 				Kr += [dof.ID]*len(e.dof_ids)
 				Kc += e.dof_ids
 				Kd += list(ks[k_id][test_id])
-				self.K[dof.ID,e.dof_ids] += ks[k_id][test_id]
 		self.spK = sparse.coo_array((Kd,(Kr,Kc)),shape=(num_dofs,num_dofs)).tocsc()
 
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
-		self.M = np.zeros((num_dofs,num_dofs))
 		Mr, Mc, Md = [],[],[]
 
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
 		ms = []
 		for j in [None,0,1]:
@@ -271,14 +277,12 @@ class Solver:
 				Mr += [dof.ID]*len(e.dof_ids)
 				Mc += e.dof_ids
 				Md += list(ms[m_id][test_id]*scale)
-				self.M[dof.ID,e.dof_ids] += ms[m_id][test_id]*scale
 		self.spM = sparse.coo_array((Md,(Mr,Mc)),shape=(num_dofs,num_dofs)).tocsc()
 
 
 	def _setup_constraints(self):
 		num_dofs = len(self.mesh.dofs)
 		self.Id = np.zeros(num_dofs)
-		self.C_full = np.eye(num_dofs)
 		self.dirichlet = np.zeros(num_dofs)
 		Cr, Cc, Cd = [],[],[]
 
@@ -293,50 +297,44 @@ class Solver:
 
 
 			self.Id[f_side[self.alt]] = 1
-			self.C_full[f_side[self.alt]] *= 0
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
-					self.C_full[f_side[self.alt][::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
 					Cr += list((f_side[self.alt][::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
 					Cd += [vvert*vhorz/scale]*(f_side[self.alt][::2]).size
 				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
-					self.C_full[f_side[self.alt][1::2],np.roll(c_side[ind],offset)] = vvert*vhorz/scale
 					Cr += list((f_side[self.alt][1::2]).flatten())
 					Cc += list(np.roll(c_side[ind],offset).flatten())
 					Cd += [vvert*vhorz/scale]*(f_side[self.alt][1::2]).size
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				if ind != self.alt:
-					self.C_full[f_side[self.alt],f_side[ind]] = -vhorz/scale
 					Cr += list((f_side[self.alt]).flatten())
 					Cc += list((f_side[ind]).flatten())
 					Cd += [-vhorz/scale]*(f_side[self.alt]).size
-
-
-		for level in range(2):
-			# lower are true dofs, upper are ghosts
-			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
-			ghost_list = np.array([b0,b1,t2,t3])
-			self.C_full[ghost_list] *= 0.
-			self.Id[ghost_list] = 1.
-			Ds, ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
-			for (D,d) in zip(Ds,ds):
-				self.C_full[d,D] = 1
-				for ind in [0,1,2,3,-4,-3,-2,-1]:
-					self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-					self.C_full[d[ind],:] = self.C_full[D[ind],:]
 			
+		dL,DL,maskL,replaceL = np.array(self.mesh.periodic_sp).T
+		for (d,D,mask) in zip(dL,DL,maskL):
+			if mask:
+				Cc = indswap(Cc,d,D)
+
+		for (d,D,mask,doubleghost) in zip(dL,DL,maskL,replaceL):
+			self.Id[d] = 1
+			if doubleghost:
+				Cr, Cc, Cd = replace(Cr, Cc, Cd, d, D)
+			else:
+				Cr.append(d)
+				Cc.append(D)
+				Cd.append(1.)
+
 		for dof_id in self.mesh.boundaries:
 			Cr,Cc,Cd = inddel(Cr,Cc,Cd,dof_id)
 			assert dof_id not in Cr
-			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
 			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
 			self.dirichlet[dof_id] = self.ufunc(x,y)
 
 		self.true_dofs = list(np.where(self.Id==0)[0])
-		self.C = self.C_full[:,self.true_dofs]
-		return
+
 		for true_ind in self.true_dofs:
 			if true_ind not in self.mesh.boundaries:
 				Cr.append(true_ind)
@@ -351,7 +349,7 @@ class Solver:
 				c_data[r].append(tup)
 			else:
 				c_data[r] = [tup]
-		self.C_full = c_data
+		self.C_full_sp = c_data
 
 		Cc_array = np.array(Cc)
 		masks = []
@@ -632,23 +630,18 @@ class Solver:
 class Laplace(Solver):
 	def __init__(self,N,u,f,qpn=5,alt=0):
 		super().__init__(N,u,f,qpn,alt)
-		self._setup_constraints()
 
 	def solve(self,construct_only=False):
 		self._build_stiffness()
 		self._build_force()
-		self.LHS = self.C.T @ self.K @ self.C
-		self.RHS = self.C.T @(-self.F - self.K @ self.dirichlet)
+		self.LHS = self.spC.T @ self.spK @ self.spC
+		self.RHS = self.spC.T.dot(-self.F - self.spK.dot(self.dirichlet))
 		if construct_only:
 			return
-		#self.LHS = self.spC.T @ self.spK @ self.spC
-		#self.RHS = self.spC.T.dot(-self.F - self.spK.dot(self.dirichlet))
 		try:
-			#x,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
-			#assert conv==0
-			x = la.solve(self.LHS,self.RHS)
-			self.U = self.C@x + self.dirichlet
-			#self.U = self.spC.dot(x) + self.dirichlet
+			spx,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
+			assert conv==0
+			self.U = self.spC.dot(spx) + self.dirichlet
 			self.solved = True
 		except:
 			print('something went wrong')
@@ -657,7 +650,6 @@ class Laplace(Solver):
 class Projection(Solver):
 	def __init__(self,N,u,qpn=5):
 		super().__init__(N,u,u,qpn)
-		self._setup_constraints()
 
 	def solve(self):
 		self._build_mass()
