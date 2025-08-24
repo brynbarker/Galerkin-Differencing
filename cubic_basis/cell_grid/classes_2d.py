@@ -125,14 +125,16 @@ class Mesh:
 					e_id += 1
 
 				mask = False
-				if (.5-2*H <= x) and (0 <= y <1):
+				if (.5-2*H <= x):# and (0 <= y <1):
 					mask = True
 					loc = j+4-xlen
-					self.interface_offset[0][loc].append(dof_id)
-				if (2*H >= x) and (0 <= y <1):
+					if 0<=y<1:
+						self.interface_offset[0][loc].append(dof_id)
+				if (2*H >= x):# and (0 <= y <1):
 					mask = True
 					loc = 3-j
-					self.interface_offset[1][loc].append(dof_id)
+					if 0<=y<1:
+						self.interface_offset[1][loc].append(dof_id)
 				if y < 2*H or y > 1.-2*H:
 					if y < 0 or y >= 1:	
 						yind = y_per_map[i]
@@ -187,7 +189,7 @@ class Mesh:
 					self.boundaries.append(dof_id)
 				if y < 2*H or y >= 1-2*H:
 					if y < 0 or y >= 1:
-						if loc != alt:
+						if True:#loc-4 != alt:
 							yind = y_per_map[i]
 							fill_id = yind*xlen+j+self.n_coarse_dofs
 							self.periodic_sp.append([dof_id,fill_id,mask,loc-4==alt])
@@ -207,7 +209,7 @@ class Solver:
 		self.ffunc = f #needs to be overwritten 
 		self.qpn = qpn
 
-		self.mesh = Mesh(N)
+		self.mesh = Mesh(N,alt)
 		self.h = self.mesh.h
 
 		self.solved = False
@@ -222,7 +224,6 @@ class Solver:
 		num_dofs = len(self.mesh.dofs)
 		self.F = np.zeros(num_dofs)
 
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		g_interface,q_p,g_w = self.quad_vals
 
 		for e in self.mesh.elements:
@@ -243,11 +244,24 @@ class Solver:
 
 		
 		ks = []
-		for j in [None,0,1]:
-			for i in [None,0,1]:
-				ks.append(local_stiffness(self.h,
+		try:
+			ratios = np.load('stiffness_ratios.npy')
+			base = ratios[0]
+			ks = [base]
+			for r in ratios[1:]:
+				ks.append(base*r)
+		except:
+			print('ratios not loaded')
+			for j in [None,0,1]:
+				for i in [None,0,1]:
+					ks.append(local_stiffness(self.h,
 							  			  qpn=self.qpn,
 										  xside=j,yside=i))
+			base = ks[0]
+			ratios = [base]
+			for k in ks[1:]:
+				ratios.append(k/base)
+			np.save('stiffness_ratios.npy',np.array(ratios))
 
 		for e in self.mesh.elements:
 			k_id = LOOKUP[e.side[0]][e.side[1]]
@@ -314,12 +328,14 @@ class Solver:
 			
 		dL,DL,maskL,replaceL = np.array(self.mesh.periodic_sp).T
 		for (d,D,mask) in zip(dL,DL,maskL):
-			if mask:
+			if mask and d in Cc:
 				Cc = indswap(Cc,d,D)
 
+		dbgs = []
 		for (d,D,mask,doubleghost) in zip(dL,DL,maskL,replaceL):
 			self.Id[d] = 1
 			if doubleghost:
+				dbgs.append(d)
 				Cr, Cc, Cd = replace(Cr, Cc, Cd, d, D)
 			else:
 				Cr.append(d)
@@ -618,13 +634,18 @@ class Solver:
 		return solution
 
 	def error(self,qpn=5):
-		uh = self.sol()
+		g_interface,q_p,g_w = self.quad_vals
+
 		l2_err = 0.
 		for e in self.mesh.elements:
+			uh_vals = 0
+			dom_id = LOOKUP[e.side[0]][e.side[1]]
+			for local_id,dof in enumerate(e.dof_list):
+				uh_vals += self.U[dof.ID]*g_interface[dom_id][local_id]
 			x0,x1,y0,y1 = e.dom
-			func = lambda x,y: (self.ufunc(x,y)-uh(x,y))**2
-			val = gauss(func,x0,x1,y0,y1,qpn)
-			l2_err += val
+			u_vals = gauss_vals(self.ufunc,x0,x1,y0,y1,self.qpn,q_p)
+			v = super_quick_gauss_error(u_vals,uh_vals,x0,x1,y0,y1,self.qpn,g_w)
+			l2_err += v
 		return np.sqrt(l2_err)
 
 class Laplace(Solver):

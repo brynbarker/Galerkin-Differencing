@@ -76,7 +76,7 @@ def super_quick_gauss(vals0,vals1,a,b,c,d,n,w):
 	return outer*xscale*yscale
 	
 def super_quick_gauss_error(vals0,vals1,a,b,c,d,n,w):
-	xscale, yscale, zscale = (b-a)/2, (d-c)/2
+	xscale, yscale = (b-a)/2, (d-c)/2
 	outer = 0.
 	for j in range(n):
 		inner = 0.
