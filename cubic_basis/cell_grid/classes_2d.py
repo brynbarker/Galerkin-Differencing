@@ -633,7 +633,9 @@ class Solver:
 			return val
 		return solution
 
-	def error(self,qpn=5):
+	def error(self,myU=None):
+		if myU is None:
+			myU = self.U
 		g_interface,q_p,g_w = self.quad_vals
 
 		l2_err = 0.
@@ -641,7 +643,7 @@ class Solver:
 			uh_vals = 0
 			dom_id = LOOKUP[e.side[0]][e.side[1]]
 			for local_id,dof in enumerate(e.dof_list):
-				uh_vals += self.U[dof.ID]*g_interface[dom_id][local_id]
+				uh_vals += myU[dof.ID]*g_interface[dom_id][local_id]
 			x0,x1,y0,y1 = e.dom
 			u_vals = gauss_vals(self.ufunc,x0,x1,y0,y1,self.qpn,q_p)
 			v = super_quick_gauss_error(u_vals,uh_vals,x0,x1,y0,y1,self.qpn,g_w)
@@ -672,18 +674,17 @@ class Projection(Solver):
 	def __init__(self,N,u,qpn=5):
 		super().__init__(N,u,u,qpn)
 
-	def solve(self):
+	def solve(self,construct_only=False):
 		self._build_mass()
 		self._build_force()
-		#self.LHS = self.spC.T @ self.spM @ self.spC
-		#self.RHS = self.spC.T @ (self.F - self.spM @ self.dirichlet)
-		self.LHS = self.C.T @ self.M @ self.C
-		self.RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
+		self.LHS = self.spC.T @ self.spM @ self.spC
+		self.RHS = self.spC.T.dot(self.F - self.spM.dot(self.dirichlet))
+		if construct_only:
+			return
 		try:
-			#x,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
-			#assert conv==0
-			x = la.solve(self.LHS,self.RHS)
-			self.U = self.C@x + self.dirichlet
+			spx,conv = sla.cg(self.LHS,self.RHS,rtol=1e-14)
+			assert conv==0
+			self.U = self.spC.dot(spx) + self.dirichlet
 			self.solved = True
 		except:
 			print('something went wrong')

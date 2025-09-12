@@ -6,6 +6,12 @@ from IPython.display import HTML
 from cubic_basis.cell_grid.shape_functions_3d import *
 
 def replace(rows,cols,data,i_out,i_in):
+	mask = np.array(rows)==i_in
+	
+	new_cols = np.array(cols)[mask]
+	new_data = np.array(data)[mask]
+	new_rows = [i_out]*len(new_cols)
+	return rows+new_rows, cols+list(new_cols), data+list(new_data)
 	# i_out is set to i_in but i_in is a ghost
 	new_rows,new_cols,new_data = [],[],[]
 	for (r,c,d) in zip(rows,cols,data):
@@ -33,7 +39,7 @@ def inddel(r,c,d,ind):
 #integrators
 
 def get_all_gauss(qpn,x0,x1,y0,y1,z0,z1,p):
-	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/4)] for ID in range(64)}
+	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/16)] for ID in range(64)}
 	val_list = []
 	for test_id in range(64):
 		test_ind = id_to_ind[test_id]
@@ -45,7 +51,7 @@ def get_all_gauss(qpn,x0,x1,y0,y1,z0,z1,p):
 		
 def compute_gauss(qpn):	
 	keys = [None,0,1]
-	ops = []
+	ops = [[]]
 	for	xk in keys:
 		for	yk in keys:
 			for	zk in keys:
@@ -56,14 +62,14 @@ def compute_gauss(qpn):
 				if len(to_add) > 0: ops.append(to_add)
 
 	[p,w] = np.polynomial.legendre.leggauss(qpn)
-	reg = get_all_gauss(qpn,0,1,0,1,0,1,p)
-	interface = [reg]
+	#reg = get_all_gauss(qpn,0,1,0,1,0,1,p)
+	interface = []
 	for dom_change in ops:
 		dom = [0,1,0,1,0,1]
 		for d in dom_change:
 			dom[d] = .5
-		x0,y0,y0,y1,z0,z1 = dom
-		vals = get_all_gauss(qpn,x0,y0,y0,y1,z0,z1,p)
+		x0,x1,y0,y1,z0,z1 = dom
+		vals = get_all_gauss(qpn,x0,x1,y0,y1,z0,z1,p)
 		interface.append(vals)
 	return interface,p,w
 
@@ -71,12 +77,32 @@ def gauss_vals(f,a,b,c,d,q,r,n,p):
 	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2
 	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
 	vals = np.zeros((n,n,n))
-	outer = 0.
 	for j in range(n):
 		for i in range(n):
 			for k in range(n):
 				vals[i,j,k] = f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
 	return vals
+
+def gauss_debug(f,g,a,b,c,d,q,r,n):
+	xmid, ymid, zmid = (a+b)/2, (c+d)/2, (q+r)/2
+	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
+	[p,w] = np.polynomial.legendre.leggauss(n)
+	outer = 0.
+	fvals = np.zeros((n,n,n))
+	gvals = np.zeros((n,n,n))
+	for j in range(n):
+		middle = 0.
+		for i in range(n):
+			inner = 0.
+			for k in range(n):
+				fval = f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
+				gval = g(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
+				inner += w[k]*fval*gval#f(xscale*p[j]+xmid,yscale*p[i]+ymid,zscale*p[k]+zmid)
+				fvals[i,j,k] = fval
+				gvals[i,j,k] = gval
+			middle += w[i]*inner
+		outer += w[j]*middle
+	return outer*xscale*yscale*zscale, fvals,gvals,p
 
 def super_quick_gauss(vals0,vals1,a,b,c,d,q,r,n,w):
 	xscale, yscale, zscale = (b-a)/2, (d-c)/2, (r-q)/2
@@ -140,7 +166,7 @@ def local_stiffness(h,qpn=5,xside=None,yside=None,zside=None):
 	z0,z1 = bounds[zside]
 
 	K = np.zeros((64,64))
-	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/4)] for ID in range(64)}
+	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/16)] for ID in range(64)}
 
 	for test_id in range(64):
 
@@ -159,24 +185,24 @@ def local_stiffness(h,qpn=5,xside=None,yside=None,zside=None):
 			K[trial_id,test_id] += val * (test_id != trial_id)
 	return K
 
-def local_mass(h,qpn=5,xside=None,yside=None,zside=None):
-	bounds = {None:[0,h],0:[0,h/2],1:[h/2,h]}
+def local_mass(qpn=5,xside=None,yside=None,zside=None):
+	bounds = {None:[0,1],0:[0,1/2],1:[1/2,1]}
 	x0,x1 = bounds[xside]
 	y0,y1 = bounds[yside]
 	z0,z1 = bounds[zside]
 
 	M = np.zeros((64,64))
-	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/4)] for ID in range(16)}
+	id_to_ind = {ID:[int(ID/4)%4,ID%4,int(ID/16)] for ID in range(64)}
 
 	for test_id in range(64):
 
 		test_ind = id_to_ind[test_id]
-		phi_test = lambda x,y,z: phi3_3d_ref(x,y,z,h,test_ind)
+		phi_test = lambda x,y,z: phi3_3d_ref(x,y,z,1,test_ind)
 
 		for trial_id in range(test_id,64):
 
 			trial_ind = id_to_ind[trial_id]
-			phi_trial = lambda x,y,z: phi3_3d_ref(x,y,z,h,trial_ind)
+			phi_trial = lambda x,y,z: phi3_3d_ref(x,y,z,1,trial_ind)
 
 			func = lambda x,y,z: phi_trial(x,y,z) * phi_test(x,y,z)
 			val = gauss(func,x0,x1,y0,y1,z0,z1,qpn)
