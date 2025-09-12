@@ -277,7 +277,7 @@ class Solver:
 		ks = []
 		try:
 			ratios = np.load('stiffness_ratios_3d.npy')
-			base = ratios[0]
+			base = ratios[0]*self.h
 			ks = [base]
 			for	r in ratios[1:]:
 				ks.append(base*r)
@@ -287,9 +287,8 @@ class Solver:
 			for	j in [None,0,1]:
 				for	i in [None,0,1]:
 					for	k in [None,0,1]:
-						ks.append(local_stiffness(self.h,
-											  qpn=self.qpn,
-											  xside=j,yside=i,zside=k))
+						ks.append(local_stiffness(qpn=self.qpn,
+												  xside=j,yside=i,zside=k))
 			base = ks[0]
 			ratios = [base]
 			for	k in ks[1:]:
@@ -297,12 +296,15 @@ class Solver:
 			np.save('stiffness_ratios_3d.npy',np.array(ratios))
 			del ratios
 
+			ks = [k*self.h for k in ks]
+
 		for	e in tqdm(self.mesh.elements):
 			k_id = LOOKUP[e.side[0]][e.side[1]][e.side[2]]
+			scale = 1 if e.fine else 2
 			for	test_id,dof	in enumerate(e.dof_list):
 				Kr += [dof.ID]*len(e.dof_ids)
 				Kc += e.dof_ids
-				Kd += list(ks[k_id][test_id])
+				Kd += list(ks[k_id][test_id]*scale)
 		self.spK = sparse.coo_array((Kd,(Kr,Kc)),shape=(num_dofs,num_dofs)).tocsc()
 
 		del Kr

@@ -159,8 +159,8 @@ def gauss(f,a,b,c,d,q,r,n):
 		outer += w[j]*middle
 	return outer*xscale*yscale*zscale
 
-def local_stiffness(h,qpn=5,xside=None,yside=None,zside=None):
-	bounds = {None:[0,h],0:[0,h/2],1:[h/2,h]}
+def local_stiffness(qpn=5,xside=None,yside=None,zside=None):
+	bounds = {None:[0,1],0:[0,1/2],1:[1/2,1]}
 	x0,x1 = bounds[xside]
 	y0,y1 = bounds[yside]
 	z0,z1 = bounds[zside]
@@ -171,12 +171,12 @@ def local_stiffness(h,qpn=5,xside=None,yside=None,zside=None):
 	for test_id in range(64):
 
 		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y,z: grad_phi3_ref(x,y,z,h,test_ind)
+		grad_phi_test = lambda x,y,z: grad_phi3_ref(x,y,z,1,test_ind)
 
 		for trial_id in range(test_id,64):
 
 			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y,z: grad_phi3_ref(x,y,z,h,trial_ind)
+			grad_phi_trial = lambda x,y,z: grad_phi3_ref(x,y,z,1,trial_ind)
 
 			func = lambda x,y,z: grad_phi_trial(x,y,z) @ grad_phi_test(x,y,z)
 			val = gauss(func,x0,x1,y0,y1,z0,z1,qpn)
