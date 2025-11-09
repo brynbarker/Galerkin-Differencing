@@ -46,8 +46,7 @@ class Element:
 		self.Interface = False
 		self.side = [None,None]
 		self.dom = [x,x+h,y,y+h]
-		self.plot = [[x,x+h,x+h,x,x],
-					 [y,y,y+h,y+h,y]]
+		self.vol = h**3
 
 	def add_dofs(self,strt,xlen):
 		if len(self.dof_ids) != 0:
@@ -76,12 +75,10 @@ class Element:
 		for dim,side in enumerate([xside,yside]):
 			if side is not None:
 				self.dom[2*dim+1-side] = loc[dim]+self.h/2
-		x0,x1,y0,y1 = self.dom
-		self.plot = [[x0,x1,x1,x0,x0],
-					 [y0,y0,y1,y1,y0]]
+				self.vol /= 2
 
 class Mesh:
-	def __init__(self,N,alt=0):
+	def __init__(self,N):
 		self.N = N # number of fine elements 
 				   # from x=0.5 to x=1.0
 		self.h = 0.5/N
@@ -91,69 +88,99 @@ class Mesh:
 		self.periodic = [[],[]]
 		self.periodic_sp = []
 		self.interface_offset = {0:[[] for _ in range(8)],
-						    	 1:[[] for _ in range(8)]}
+						    	 1:[[] for _ in range(8)],
+						    	 2:[[] for _ in range(8)],
+						    	 3:[[] for _ in range(8)]}
+		self.overlap_offset = {0:[],1:[]}
+		self.dof_counts = []
+		self.el_counts = []
 		
-		self._make_coarse(alt)
-		self._make_fine(alt)
+		self._make_coarse()
+		self._make_fine()
 
 		self._update_elements()
 
-	def _make_coarse(self,alt=0):
+	def _make_coarse(self):
 		H = self.h*2
-		xdom = np.linspace(0-3*H/2,0.5+3*H/2,int(self.N/2)+4)
-		ydom = np.linspace(-3*H/2,1+3*H/2,self.N+4)
+		doms = {}
 
-		xlen,ylen = len(xdom),len(ydom)
-		y_per_map = {0:ylen-4,1:ylen-3,ylen-1:3,ylen-2:2}
+		xdom = np.linspace(0-5*H/2,1+5*H/2,self.N+6)
+		ydom = np.linspace(-5*H/2,.5+5*H/2,int(self.N/2)+6)
+		doms[0] = (xdom,ydom)
 
-		i_check,j_check = [1,ylen-3],[1,xlen-3]
+		xdom = np.linspace(0-5*H/2,0.5+5*H/2,int(self.N/2)+6)
+		ydom = np.linspace(.5-5*H/2,1+5*H/2,int(self.N/2)+6)
+		doms[1] = (xdom,ydom)
+		mnmx = [(-H,1,-H,.5),(-H,.5,.5,1)]
 
 		dof_id,e_id = 0,0
-		for i,y in enumerate(ydom):
-			yside = i==1 if i in i_check else None
-			for j,x in enumerate(xdom):
-				interface_element = i in i_check or j in j_check
-				xside = j==1 if j in j_check else None
-				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
+		for dom_id in doms:
+			xdom,ydom = doms[dom_id]
+			xlen,ylen = len(xdom),len(ydom)
+			xmn,xmx,ymn,ymx = mnmx[dom_id]
 
-				if (-H<x<.5) and (-H<y<1.):
-					strt = dof_id-1-xlen
-					element = Element(e_id,j,i,x,y,H)
-					element.add_dofs(strt,xlen)
-					self.elements.append(element)
-					if interface_element: element.set_interface(xside,yside)
-					e_id += 1
+			i_check,j_check = [1,ylen-3],[1,xlen-3]
+			checks = {'F':(False,False),'C':False,'P':False,'D':False}
 
-				mask = False
-				if (.5-2*H <= x):# and (0 <= y <1):
-					mask = True
-					loc = j+4-xlen
-					if 0<=y<1:
-						self.interface_offset[0][loc].append(dof_id)
-				if (2*H >= x):# and (0 <= y <1):
-					mask = True
-					loc = 3-j
-					if 0<=y<1:
-						self.interface_offset[1][loc].append(dof_id)
-				if y < 2*H or y > 1.-2*H:
-					if y < 0 or y >= 1:	
-						yind = y_per_map[i]
-						fill_id = yind*xlen+j
-						self.periodic_sp.append([dof_id,fill_id,mask,False])
-					self.periodic[0].append(dof_id)
+			for i,y in enumerate(ydom):
+				yside = i==1 if i in i_check else None
+				for j,x in enumerate(xdom):
+					interface_element = i in i_check or j in j_check
+					xside = j==1 if j in j_check else None
+					self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				dof_id += 1
+					if (xmn<x<xmx) and (ymn<y<ymx):
+						strt = dof_id-2-2*xlen
+						element = Element(e_id,j,i,x,y,H)
+						element.add_dofs(strt,xlen)
+						self.elements.append(element)
+						if interface_element: element.set_interface(xside,yside)
+						e_id += 1
+						
+					if dom_id == 0:
+						xchk, ychk0,ychk1 = x>.5-3*H, .5+2*H>y>.5-2*H, -2*H<y<2*H
+						checks['F'] = (ychk0 and xchk,ychk1 and xchk)
+						checks['C'] = (y>.5-3*H or y<3*H) and x < .5+3*H
+						xchk,ychk = (x<0 or x>1), (y<0 or y>.5)
+						checks['P'] = (xchk and not ychk) or (ychk and j>=xlen-6)
+						checks['D'] = y == 7*H/2
+					else:
+						xchk0,xchk1 = .5+2*H>x>.5-2*H, -2*H<x<2*H
+						checks['F'] = (xchk0,xchk1)
+						checks['C'] = (y <= .5+3*H or y >= 1-3*H)
+					ilen = xlen if dom_id else ylen
+					ivar = j if dom_id else i
+
+
+					if checks['F'][0]:
+						loc = ivar+5-ilen
+						self.interface_offset[2*dom_id][loc].append(dof_id)
+					if checks['F'][1]:
+						loc = 4-ivar
+						self.interface_offset[2*dom_id+1][loc].append(dof_id)
+					if checks['C']:
+						self.overlap_offset[dom_id].append(dof_id)
+					if checks['P']:
+						sgn = -1 if x > 0 else 1
+						pind = dof_id + sgn*(xlen-6)
+						ychk = y<0 or y>.5
+						self.periodic_sp.append([dof_id,pind,ychk,not ychk and x<0])
+					if checks['D']:
+						self.boundaries.append(dof_id)
+
+					dof_id += 1
+			self.dof_counts.append(dof_id)
+			self.el_counts.append(e_id)
 
 		self.n_coarse_dofs = dof_id
 		self.n_coarse_els = e_id
 
-	def _make_fine(self,alt=0):
+	def _make_fine(self):
 		H = self.h
 		xdom = np.linspace(0.5-3*H/2,1.+3*H/2,self.N+4)
-		ydom = np.linspace(-3*H/2,1+3*H/2,2*self.N+4)
+		ydom = np.linspace(.5-3*H/2,1+3*H/2,self.N+4)
 
 		xlen,ylen = len(xdom),len(ydom)
-		y_per_map = {0:ylen-4,1:ylen-3,ylen-1:3,ylen-2:2}
 
 		i_check,j_check = [1,ylen-3],[1,xlen-3]
 
@@ -165,7 +192,7 @@ class Mesh:
 				xside = j==1 if j in j_check else None
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5-H<x<1.) and (0-H<y<1.):
+				if (0.5-H<x<1.) and (.5-H<y<1.):
 					strt = dof_id-1-xlen
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
@@ -174,27 +201,18 @@ class Mesh:
 					if interface_element: element.set_interface(xside,yside)
 					e_id += 1
 
-				mask,loc = False, 1e4
-				if (x <= .5+2*H):# and (0 <= y <1):
+				if (y <= .5+2*H):
+					loc = i+4
+					self.interface_offset[0][loc].append(dof_id)
+				elif (y >= 1-2*H):
+					loc = 3-(i-ylen)
+					self.interface_offset[1][loc].append(dof_id)
+				if (x <= .5+2*H):# and (.5-H < y and y < 1+H):
 					loc = j+4
-					if 0<=y<1:
-						self.interface_offset[0][loc].append(dof_id)
-					mask = (loc-4) != alt
-				if (x >= 1-2*H):# and (0 <= y <1):
+					self.interface_offset[2][loc].append(dof_id)
+				elif (x >= 1-2*H):# and (.5-H < y and y < 1+H):
 					loc = 3-(j-xlen)
-					if (0<=y<1):
-						self.interface_offset[1][loc].append(dof_id)
-					mask = (loc-4) != alt
-				if x==1-5*H/2:
-					self.boundaries.append(dof_id)
-				if y < 2*H or y >= 1-2*H:
-					if y < 0 or y >= 1:
-						if True:#loc-4 != alt:
-							yind = y_per_map[i]
-							fill_id = yind*xlen+j+self.n_coarse_dofs
-							self.periodic_sp.append([dof_id,fill_id,mask,loc-4==alt])
-					if x != 1-5*H/2:
-						self.periodic[1].append(dof_id)
+					self.interface_offset[3][loc].append(dof_id)
 
 				dof_id += 1
 
@@ -203,20 +221,20 @@ class Mesh:
 			e.update_dofs(self.dofs)
 
 class Solver:
-	def __init__(self,N,u,f=None,qpn=5,alt=0):
+	def __init__(self,N,u,f=None,qpn=5):
 		self.N = N
 		self.ufunc = u
 		self.ffunc = f #needs to be overwritten 
 		self.qpn = qpn
 
-		self.mesh = Mesh(N,alt)
+		self.mesh = Mesh(N)
 		self.h = self.mesh.h
 
 		self.solved = False
 		self.C = None
 		self.Id = None
-		self.alt = alt
 
+		# return
 		self._setup_constraints()
 		self.quad_vals = compute_gauss(qpn)
 
@@ -224,18 +242,19 @@ class Solver:
 		num_dofs = len(self.mesh.dofs)
 		self.F = np.zeros(num_dofs)
 
-		g_interface,q_p,g_w = self.quad_vals
+		phi_gauss_vals,P,W	= self.quad_vals
 
 		for e in self.mesh.elements:
 			y0,y1 = e.dom[2]-e.y, e.dom[3]-e.y
 			x0,x1 = e.dom[0]-e.x, e.dom[1]-e.x
 			func = lambda x,y: self.ffunc(x+e.x,y+e.y)
-			f_vals = gauss_vals(func,x0,x1,y0,y1,self.qpn,q_p)
+			f_vals = gauss_vals(func,x0,x1,y0,y1,self.qpn,P)
 			dom_id = LOOKUP[e.side[0]][e.side[1]]
+			scale = e.vol/4
 			for test_id,dof in enumerate(e.dof_list):
-				phi_vals = g_interface[dom_id][test_id]
-				val = super_quick_gauss(f_vals,phi_vals,x0,x1,y0,y1,self.qpn,g_w)
-
+				phi_vals = phi_gauss_vals[dom_id][test_id]
+				#val = super_quick_gauss(f_vals,phi_vals,x0,x1,y0,y1,self.qpn,g_w)
+				val = (f_vals*phi_vals)@W@W@W*scale
 				self.F[dof.ID] += val
 
 	def _build_stiffness(self):
@@ -275,6 +294,7 @@ class Solver:
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
 		Mr, Mc, Md = [],[],[]
+
 		
 		ms = []
 		for j in [None,0,1]:
@@ -301,46 +321,92 @@ class Solver:
 
 		v12,v32 = 9/16,-1/16
 		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
-		alt_to_scale = {0:v32,1:v12,2:v12,3:v32}
-		scale = alt_to_scale[self.alt]
 
+		ops = [np.array(grd).reshape((12,-1)) for grd in self.mesh.overlap_offset.values()]
+		periodic_swaps = {}
+		rs = [(0,-6),(-3,3)]
+		for s in range(2):
+			ds,Ds = rs[s]
+			for r in range(3):
+				for c in range(6):
+					periodic_swaps[ops[0][ds+r,c]] = ops[1][Ds+r,c]
+
+		dL,DL,pswps,oswps = np.array(self.mesh.periodic_sp).T
+		overlap_swaps = {}
+		for (d,D,pswp,oswp) in zip(dL,DL,pswps,oswps):
+			self.Id[d] = 1
+			if pswp:
+				D = periodic_swaps[D]
+			if oswp:
+				overlap_swaps[d] = D
+			Cr.append(d)
+			Cc.append(D)
+			Cd.append(1.)
+		for r in [3,4,5,-6,-5,-4]:
+			for c in range(3):
+				old_val = ops[0][r,c]
+				ops[0][r,c] = overlap_swaps[old_val]
+
+		tmp = len(Cr)
+		corner_swaps = {i:[] for i in range(4)}
+		rows,cols = [(3,5),(-5,-3)], [(-6,None),(0,6)]
 		for j in range(2):
-			c_side = np.array(self.mesh.interface_offset[j][:4])
-			f_side = np.array(self.mesh.interface_offset[j][4:])
+			ghosts = list(ops[j][:3,:].flatten())+list(ops[j][-3:,:].flatten())
+			self.Id[ghosts] = 1
+			Cr += ghosts
+			Cc += list(ops[1-j][-6:-3,:].flatten())+list(ops[1-j][3:6,:].flatten())
+			Cd += [1]*len(ghosts)
+
+			for i in range(2):
+				for k in range(2):
+					(r0,r1),(c0,c1) = rows[i],cols[k]
+					corner = ops[1-j][r0:r1,c0:c1]
+					# if j: corner = corner.T
+					corner_swaps[2*j+i].append(corner)
+		self.lookthru = np.array([Cr[tmp:].copy(),Cc[tmp:].copy()]).T
 
 
-			self.Id[f_side[self.alt]] = 1
+		rs = [(0,-6),(-3,3)]
+		for s in range(2):
+			ds,Ds = rs[s]
+			for r in range(3):
+				for c in range(6):
+					overlap_swaps[ops[0][ds+r,c]] = ops[1][Ds+r,c]
+
+		print(len(Cc))
+
+		bnds = [[(0,2),(2,4)],[(0,6),(-6,None)]]
+		for interface_id in range(4):
+			c_side_og = np.array(self.mesh.interface_offset[interface_id][:4])
+			f_side = np.array(self.mesh.interface_offset[interface_id][4:])
+
+			c_side = c_side_og.copy()
+			j,i = int(interface_id/2), interface_id%2
+			for k in range(2):
+				corner = corner_swaps[interface_id][k]
+				rind = k if j else 1-i
+				cind = 1-i if j else k
+				(r0,r1),(c0,c1) = bnds[0][rind],bnds[1][cind]
+				c_side[r0:r1,c0:c1] = corner
+
+			self.Id[f_side[0]] = 1
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
 				for vvert, offset in zip([v74,v34,v14,v54],[2,1,0,-1]):
-					Cr += list((f_side[self.alt][::2]).flatten())
-					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/scale]*(f_side[self.alt][::2]).size
+					Cr += list(f_side[0][::2])
+					Cc += list(np.roll(c_side[ind],offset)[2:-2])
+					Cd += [vvert*vhorz/v32]*(f_side[0][::2]).size
 				for vvert, offset in zip([v54,v14,v34,v74],[1,0,-1,-2]):
-					Cr += list((f_side[self.alt][1::2]).flatten())
-					Cc += list(np.roll(c_side[ind],offset).flatten())
-					Cd += [vvert*vhorz/scale]*(f_side[self.alt][1::2]).size
+					Cr += list(f_side[0][1::2])
+					Cc += list(np.roll(c_side[ind],offset)[2:-2])
+					Cd += [vvert*vhorz/v32]*(f_side[0][1::2]).size
 			for ind,vhorz in enumerate([v32,v12,v12,v32]):
-				if ind != self.alt:
-					Cr += list((f_side[self.alt]).flatten())
-					Cc += list((f_side[ind]).flatten())
-					Cd += [-vhorz/scale]*(f_side[self.alt]).size
+				if ind != 0:
+					Cr += list(f_side[0])
+					Cc += list(f_side[ind])
+					Cd += [-vhorz/v32]*(f_side[0]).size
 			
-		dL,DL,maskL,replaceL = np.array(self.mesh.periodic_sp).T
-		for (d,D,mask) in zip(dL,DL,maskL):
-			if mask and d in Cc:
-				Cc = indswap(Cc,d,D)
 
-		dbgs = []
-		for (d,D,mask,doubleghost) in zip(dL,DL,maskL,replaceL):
-			self.Id[d] = 1
-			if doubleghost:
-				dbgs.append(d)
-				Cr, Cc, Cd = replace(Cr, Cc, Cd, d, D)
-			else:
-				Cr.append(d)
-				Cc.append(D)
-				Cd.append(1.)
-
+		print(176 in Cc)
 		for dof_id in self.mesh.boundaries:
 			Cr,Cc,Cd = inddel(Cr,Cc,Cd,dof_id)
 			assert dof_id not in Cr
@@ -356,6 +422,10 @@ class Solver:
 				Cc.append(true_ind)
 				Cd.append(1.)
 
+		self.Cc = Cc
+		self.Cr = Cr
+		self.Cd = Cd
+		#self.periodic_swaps = periodic_swaps
 		self.spC_full = sparse.coo_array((Cd,(Cr,Cc)),shape=(num_dofs,num_dofs))
 		c_data = {}
 		for i,r in enumerate(self.spC_full.row):
@@ -365,6 +435,7 @@ class Solver:
 			else:
 				c_data[r] = [tup]
 		self.C_full_sp = c_data
+		return
 
 		Cc_array = np.array(Cc)
 		masks = []
@@ -380,16 +451,14 @@ class Solver:
 	def solve(self):
 		print('virtual not overwritten')
 
-	def vis_constraints(self,alt=False):
+	def vis_constraints(self):
 		fig,ax = plt.subplots(1,figsize=(16,24))
 		markers = np.array([['s','^'],['v','o']])
 		
 		v12,v32 = 9/16,-1/16
-		alt_to_scale = {0:v32,1:v12,2:v12,3:v32}
-		scale = alt_to_scale[self.alt]
 
 		v14,v34,v54,v74 = 105/128,35/128,-7/128,-5/128
-		w = [-v32/scale,-v12/scale]+[vh*vv/scale for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
+		w = [-v32/v32,-v12/v32]+[vh*vv/v32 for vh in [v12,v32] for vv in [v14,v34,v54,v74]]
 		colors = ['C{}'.format(i) for i in range(10)] + ['magenta']
 		colors += ['skyblue','limegreen','yellow','salmon','darkgoldenrod']
 		cols = {v:colors[i] for (i,v) in enumerate(w)}
@@ -400,7 +469,7 @@ class Solver:
 		unknown_cs = {}
 		for ind,b in enumerate(self.Id):
 			if b:
-				row = self.C_full[ind]
+				row = self.C_full_sp[ind]
 				dof = self.mesh.dofs[ind]
 				x,y = dof.x,dof.y
 				if dof.h==self.h:
@@ -461,6 +530,7 @@ class Solver:
 		plt.show()
 		print(unknown_vals)
 		return unknown, flags
+
 	def vis_dof_sol(self,proj=False,err=False,fltr=False,fval=.9,dsp=False,myU=None,onlytrue=False):
 		U = self.U
 		if myU is not None: U=myU
@@ -650,8 +720,8 @@ class Solver:
 		return np.sqrt(l2_err)
 
 class Laplace(Solver):
-	def __init__(self,N,u,f,qpn=5,alt=0):
-		super().__init__(N,u,f,qpn,alt)
+	def __init__(self,N,u,f,qpn=5):
+		super().__init__(N,u,f,qpn)
 
 	def solve(self,construct_only=False):
 		self._build_stiffness()

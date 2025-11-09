@@ -31,7 +31,7 @@ class Element:
 		self.dof_ids = []
 		self.dof_list = []
 		self.fine = False
-		self.Interface = False
+		self.interface = False
 		self.dom = [x,x+h,y,y+h]
 		self.plot = [[x,x+h,x+h,x,x],
 					 [y,y,y+h,y+h,y]]
@@ -66,9 +66,8 @@ class Mesh:
 		self.dofs = {}
 		self.elements = []
 		self.boundaries = []
-		self.interface = [[],[]]
+		self.interface = [[],[],[],[]]
 		self.periodic = [[],[]]
-		self.interface_offset = [[],[],[],[],[],[],[],[]]
 		
 		self._make_coarse()
 		self._make_fine()
@@ -94,19 +93,15 @@ class Mesh:
 					self.elements.append(element)
 					e_id += 1
 
-				if x==0.:
-					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
+				# if x==0.:
+					# self.boundaries.append(dof_id)
+				if y < 2*H or y > 1.-2*H:
 					self.periodic[0].append(dof_id)
 				
 				if (x == 0.5) and (0 <= y < 1):
 					self.interface[0].append(dof_id)
-
-				if (.5-2*H <= x) and (0 <= y <1):
-					if x < .5-H: self.interface_offset[0].append(dof_id)
-					elif x < .5: self.interface_offset[1].append(dof_id)
-					elif x == .5: self.interface_offset[2].append(dof_id)
-					else: self.interface_offset[3].append(dof_id)
+				if (x == 0) and (0 <= y < 1):
+					self.interface[2].append(dof_id)
 
 				dof_id += 1
 
@@ -133,17 +128,14 @@ class Mesh:
 					self.elements.append(element)
 					e_id += 1
 
-				if x==1.:# and (0 <= y < 1):#or y==0. or y==1:
-					self.boundaries.append(dof_id)
-				elif y < 2*H or y > 1.-2*H:
+				# if x==1.:# and (0 <= y < 1):#or y==0. or y==1:
+					# self.boundaries.append(dof_id)
+				if y < 2*H or y > 1.-2*H:
 					self.periodic[1].append(dof_id)
 				if (x == 0.5) and (0 <= y < 1):
 					self.interface[1].append(dof_id)
-				if (x <= .5+2*H) and (0 <= y <1):
-					if x < .5: self.interface_offset[4].append(dof_id)
-					elif x == .5: self.interface_offset[5].append(dof_id)
-					elif x < .5+2*H: self.interface_offset[6].append(dof_id)
-					else: self.interface_offset[7].append(dof_id)
+				if (x == 1) and (0 <= y < 1):
+					self.interface[3].append(dof_id)
 
 				dof_id += 1
 
@@ -164,10 +156,11 @@ class Solver:
 		self.solved = False
 		self.C = None
 		self.Id = None
+		self.G = None
 
 	def _build_force(self):
 		num_dofs = len(self.mesh.dofs)
-		self.F = np.zeros(num_dofs)
+		self.F = np.zeros(num_dofs+1)
 
 		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 
@@ -181,25 +174,36 @@ class Solver:
 				val = gauss(func,0,e.h,0,e.h,self.qpn)
 
 				self.F[dof.ID] -= val
+	
+	def _build_zero_mean(self):
+		num_dofs = len(self.mesh.dofs)
+		self.G = np.zeros(num_dofs)
+
+		base_g = local_zero_mean(self.h,qpn=self.qpn)
+
+		for e in self.mesh.elements:
+			scale = 1 if e.fine else 4
+			for test_id,dof in enumerate(e.dof_list):
+				self.G[dof.ID] += base_g[test_id] * scale
 
 	def _build_stiffness(self):
+		if self.G is None:
+			self._build_zero_mean()
 		num_dofs = len(self.mesh.dofs)
-		self.K = np.zeros((num_dofs,num_dofs))
+		self.K = np.zeros((num_dofs+1,num_dofs+1))
 
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
-		
 		base_k = local_stiffness(self.h)
 
 		for e in self.mesh.elements:
 			for test_id,dof in enumerate(e.dof_list):
 				self.K[dof.ID,e.dof_ids] += base_k[test_id]
+		self.K[:-1,-1] = self.G
+		self.K[-1,:-1] = self.G[:]
 
 
 	def _build_mass(self):
 		num_dofs = len(self.mesh.dofs)
 		self.M = np.zeros((num_dofs,num_dofs))
-
-		id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
 		
 		base_m = local_mass(self.h,qpn=self.qpn)
 
@@ -211,47 +215,31 @@ class Solver:
 
 	def _setup_constraints(self,alt=0):
 		num_dofs = len(self.mesh.dofs)
-		self.Id = np.zeros(num_dofs)
-		self.C_full = np.eye(num_dofs)
-		self.dirichlet = np.zeros(num_dofs)
+		self.Id = np.zeros(num_dofs+1)
+		self.C_full = np.eye(num_dofs+1)
+		self.dirichlet = np.zeros(num_dofs+1)
 
-		c_side = np.array(self.mesh.interface_offset[:4])
-		f_side = np.array(self.mesh.interface_offset[4:])
-		#self.Id[c_side[-1]] = 1
-		#self.C_full[c_side[-1]] *= 0
-		#self.C_full[c_side[-1],f_side[-1,::2]] = 1
-		#c_side = np.array(self.mesh.interface_offset[:4])
-		#f_side = np.array(self.mesh.interface_offset[4:])
-		#to_set = np.array([c_side[-1],f_side[0,::2]])
-		#to_use = np.vstack((c_side[:3],f_side[2:,::2]))
 
-		#self.Id[to_set.flatten()] = 1
-		#self.C_full[to_set.flatten()] *= 0
+		for k in range(2):
+			c_inter,f_inter = self.mesh.interface[2*k:2*k+2]
+			self.Id[f_inter] = 1
+			self.C_full[f_inter] *= 0
 
-		#mat = np.array([[-1/3,5/3,-5,16/3,-2/3],[-1/12,2/3,1/4,1/3,-1/6]])
-		#for ind in range(5):
-		#	self.C_full[to_set[0],to_use[ind]] = mat[0,ind]
-		#	self.C_full[to_set[1],to_use[ind]] = mat[1,ind]
+  			# collocated are set to the coarse node
+			self.C_full[f_inter[::2],c_inter[:]] = 1
 
-		c_inter,f_inter = self.mesh.interface
-		self.Id[f_inter] = 1
-		self.C_full[f_inter] *= 0
+			v1, v3 = phi3(1/2,1), phi3(3/2,1)
 
-        # collocated are set to the coarse node
-		self.C_full[f_inter[::2],c_inter[:]] = 1
-
-		v1, v3 = phi3(1/2,1), phi3(3/2,1)
-
-		for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
-			self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
+			for v, offset in zip([v3,v1,v1,v3],[1,0,-1,-2]):#ind,ID in enumerate(f_odd):
+				self.C_full[f_inter[1::2],np.roll(c_inter,offset)] = v
 			
 
     
-		for dof_id in self.mesh.boundaries:
-			self.C_full[dof_id] *= 0
-			self.Id[dof_id] = 1.
-			x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
-			self.dirichlet[dof_id] = self.ufunc(x,y)
+		# for dof_id in self.mesh.boundaries:
+		# 	self.C_full[dof_id] *= 0
+		# 	self.Id[dof_id] = 1.
+		# 	x,y = self.mesh.dofs[dof_id].x,self.mesh.dofs[dof_id].y
+		# 	self.dirichlet[dof_id] = self.ufunc(x,y)
 
 		for level in range(2):
 			# lower are true dofs, upper are ghosts
@@ -399,14 +387,6 @@ class Solver:
 
 		plt.show()
 		return
-	#def vis_mesh(self):
-	#	markers = ['o','^']
-	#	colors = ['grey','C1']
-	#	for dof in self.mesh.dofs.values():
-	#		m = markers[dof.h==self.h]
-	#		c = colors[int(self.Id[dof.ID])]
-	#		plt.scatter(dof.x,dof.y,marker=m,c=c)
-	#	plt.show()
 
 	def vis_dofs(self):
 		frame = [[.5,1,1,0,0,.5,.5],[0,0,1,1,0,0,1]]
@@ -541,11 +521,11 @@ class Laplace(Solver):
 		self._build_stiffness()
 		self._build_force()
 		LHS = self.C.T @ self.K @ self.C
-		RHS = self.C.T @ (self.F - self.K @ self.dirichlet)
+		RHS = self.C.T @ (self.F )#- self.K @ self.dirichlet)
 		#LHS = self.C_rect.T @ self.K @ self.C_rect
 		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
 		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
+		self.U = self.C @ x #+ self.dirichlet
 		self.solved = True
 
 
