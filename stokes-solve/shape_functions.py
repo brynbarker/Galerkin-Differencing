@@ -106,12 +106,22 @@ def	phi_2d_eval(p,x_in,y_in,h,x0,y0):
 
 def	phi_2d_ref(p,x_ref,y_ref,h,ind):
 	i,j	= ind
-	xL,	yL = int((p[0]-1)/2), int((p[1]-1)/2)
+	xL,	yL = int(p[0]/2), int(p[1]/2)
 	x,y	= x_ref+h*(xL-j),y_ref+h*(yL-i)
 	return phi_2d(p,x,y,h)
 
 def	grad_phi_ref(p,x_ref,y_ref,h,ind):
 	i,j	= ind
-	xL,	yL = int((p[0]-1)/2), int((p[1]-1)/2)
+	xL,	yL = int(p[0]/2), int(p[1]/2)
 	x,y	= x_ref+h*(xL-j),y_ref+h*(yL-i)
 	return grad_phi(p,x,y,h)
+	   
+def partial_div_phi_ref(p, x_ref, y_ref, h, dim, ind):
+	i,j	= ind
+	xL,	yL = int(p[0]/2), int(p[1]/2)
+	xy	= x_ref+h*(xL-j),y_ref+h*(yL-i)
+
+	part1 = dx_map[p[dim]](xy[dim],h) 
+	part2 = func_map[p[1-dim]](xy[1-dim],h)
+
+	return part1*part2
