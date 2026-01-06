@@ -294,3 +294,27 @@ def local_mass(h,qpn=5,y0=0,y1=1):
 			M[trial_id,test_id] += val * (test_id != trial_id)
 	return M
 
+
+def local_div(h,qpn=5,y0=0,y1=1):
+	B = np.zeros((16,16))
+	id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+
+	y0 *= h
+	y1 *= h 
+
+	for test_id in range(16):
+
+		test_ind = id_to_ind[test_id]
+		q_test = lambda x,y: q3_ref(x,y,h,test_ind)
+
+		for trial_id in range(test_id,16):
+
+			trial_ind = id_to_ind[trial_id]
+			div_phi_trial = lambda x,y: div_phi3_ref(x,y,h,trial_ind)
+
+			func = lambda x,y: div_phi_trial(x,y) @ q_test(x,y)
+			val = gauss(func,0,h,y0,y1,qpn)
+
+			K[test_id,trial_id] += val
+			K[trial_id,test_id] += val * (test_id != trial_id)
+	return K

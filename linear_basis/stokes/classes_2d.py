@@ -145,7 +145,7 @@ class UniformMesh(Mesh):
 		dof_id,e_id	= 0,0
 		for dim in range(2):
 			H =	self.h
-			normal, transverse = self.order, self.order#-1
+			normal, transverse = self.order, self.order-1
 			nR,nL,nT = int((normal-1)/2), int(normal/2), normal-1
 			tR,tL,tT = int((transverse-1)/2), int(transverse/2), transverse-1
 			ndom = np.linspace(0-H*nL,1+H*nR,self.N+1+nT)
@@ -165,23 +165,20 @@ class UniformMesh(Mesh):
 					xside = None if (0<=x<=1-H) else x<0
 					self.u_dofs[dof_id] =	VelocityDoF(dof_id,j,i,x,y,H,dim)
 
-					xcheck = (-H<x<1-H) if dim else (-H<x<1)
-					ycheck = (-H<y<1) if dim else (-H<y<1-H)
-
-					if xcheck and ycheck:#(-H<x<1) and (-H<y<1):
+					if (-H<x<1) and (-H<y<1):
 						strt = dof_id-(Ls[dim]+Ls[1-dim]*lens[dim])
 						element	= Element(e_id,j-Ls[1-dim],i-Ls[dim],
 										  [ords[dim],ords[1-dim]],
 										  x,y,H,dim=dim)
 						interface = (yside is not None) or (xside is not None)
-						#if interface: element.set_interface(xside,yside)
+						if interface: element.set_interface(xside,yside)
 						element.add_dofs(strt,lens[dim])
 						self.u_elements.append(element)
 						e_id +=	1
 						
 					icheck = (i==0) or (i==lens[1-dim]-1)
 					jcheck = (j==0) or (j==lens[dim]-1)
-					if icheck or jcheck:#(icheck and not dim) or (jcheck and dim):
+					if icheck or jcheck:
 						self.periodic['vel'].append(dof_id)
 					if False:#x < 0 or	x >= 1 or y	< 0	or y >=	1:
 						xind = j
@@ -383,21 +380,17 @@ class Stokes:
 
 		self._grab_local_ks()
 		self._grab_local_ms()
-		return
 		self._grab_local_divs()
 
 	def _grab_local_ms(self):
 		fname = 'local_ms_p{}_q{}.pickle'.format(
 			self.order,self.qpn)
 		try:
-			np.aray()
 			with open(fname,'rb') as handle:
 				m_dict = pickle.load(handle)
 		except:
-			ps = {0:[self.order,self.order],
-		 		  1:[self.order,self.order]}
-			#ps = {0:[self.order,self.order-1],
-		 	#	  1:[self.order-1,self.order]}
+			ps = {0:[self.order,self.order-1],
+		 		  1:[self.order-1,self.order]}
 			m_dict = {0:[],1:[]}
 			for key in range(9):
 				xside,yside = REVERSE_LOOKUP[key]
@@ -417,14 +410,11 @@ class Stokes:
 		fname = 'local_ks_p{}_q{}.pickle'.format(
 			self.order,self.qpn)
 		try:
-			np.aray()
 			with open(fname,'rb') as handle:
 				k_dict = pickle.load(handle)
 		except:
-			ps = {0:[self.order,self.order],
-		 		  1:[self.order,self.order]}
-			#ps = {0:[self.order,self.order-1],
-		 	#	  1:[self.order-1,self.order]}
+			ps = {0:[self.order,self.order-1],
+		 		  1:[self.order-1,self.order]}
 			k_dict = {0:[],1:[]}
 			for key in range(9):
 				xside,yside = REVERSE_LOOKUP[key]
@@ -483,7 +473,7 @@ class Stokes:
 			myf = [self.ufunc,self.vfunc]
 
 		for	e in self.mesh.u_elements:
-			p0,p1 = [self.order,self.order]#e.order
+			p0,p1 = e.order
 			xl,yl = p0+1,p1+1
 			xside,yside = REVERSE_LOOKUP[e.side]
 			x0,x1 =	e.h*np.array(DOMAIN_LOOKUP[xside])
@@ -500,7 +490,7 @@ class Stokes:
 		if proj:
 			self.F_proj=F
 		else:
-			self.F_lap = -F
+			self.F_lap = F
 
 	def _uv_to_p_element(self,e):
 		p_dict = {0:None,1:None}
@@ -543,11 +533,10 @@ class Stokes:
 		Kr, Kc, Kd = [],[],[]
 
 		for	e in self.mesh.u_elements:
-			local_k = self.local_ks[e.dim][e.side]
 			for	test_id,dof	in enumerate(e.dof_list):
 				Kr += [dof.ID]*len(e.dof_ids)
 				Kc += e.dof_ids
-				Kd += list(local_k[test_id])
+				Kd += list(self.local_ks[e.dim][e.side][test_id])
 		self.spK = sparse.coo_array((Kd,(Kr,Kc)),shape=(num_u_dofs,num_u_dofs)).tocsc()
 
 	def	_build_mass(self):
@@ -555,7 +544,13 @@ class Stokes:
 		Mr, Mc, Md = [],[],[]
 
 		for	e in self.mesh.u_elements:
+			# mass(2 ) = 2^sqrd mass( 1 )
+			# mass(N ) = N^sqrd mass( 1 h)
+			# mass(1/2 h) = 2^sqrd mass( 1 h)
+			# xside,yside = REVERSE_LOOKUP[e.side]
+			# m = local_mass(e.h,e.order,self.qpn,xside,yside)
 			local_m = self.local_ms[e.dim][e.side]*e.h**2
+			# print(np.linalg.norm(local_m-m))
 			for	test_id,dof	in enumerate(e.dof_list):
 				Mr += [dof.ID]*len(e.dof_ids)
 				Mc += e.dof_ids
@@ -612,8 +607,8 @@ class Stokes:
 		self._build_lap_force(lap_force)
 
 		self.LHS_lap = self.spC_u.T @ self.spK @ self.spC_u
-		rhs_tmp = self.F_lap - self.spK.dot(self.dirichlet)
-		self.RHS_lap = self.spC_u.T.dot(rhs_tmp)
+		rhs_tmp = self.F_lap + self.spK.dot(self.dirichlet)
+		self.RHS_lap = self.spC_u.T.dot(-rhs_tmp)
 		if True:#try:
 			spx,conv = sla.gmres(self.LHS_lap,self.RHS_lap,rtol=1e-14)
 			assert conv==0
@@ -640,7 +635,6 @@ class Stokes:
 
 	def	_setup_constraints(self):
 		self._setup_velocity_constraints()
-		return
 		self._setup_pressure_constraints()
 
 
@@ -833,7 +827,7 @@ class Stokes:
 				x1.append(dof.x)
 				y1.append(dof.y)
 				val	= myU[dof.ID]
-				if err:	val	= abs(val-self.vfunc(dof.x,dof.y))
+				if err:	val	= abs(val-self.ufunc(dof.x,dof.y))
 				c1.append(val)
 		
 		dom = np.linspace(0,1,self.N+1)
@@ -843,11 +837,9 @@ class Stokes:
 		for i in range(2):
 			for j in range(3):
 				for x in dom:
-					plt.plot([x,x],[0,1],'lightgrey',lw=2,zorder=0)
-					plt.plot([0,1],[x,x],'lightgrey',lw=2,zorder=0)
-		plt.scatter(x0,y0,marker='^',
-			  		vmin=min(c0),vmax=max(c0),
-					c=c0,cmap='jet',zorder=1)
+					plt.plot([x,x],[0,1],'lightgrey',lw=2)
+					plt.plot([0,1],[x,x],'lightgrey',lw=2)
+		plt.scatter(x0,y0,marker='^',vmin=min(c0),vmax=max(c0),c=c0,cmap='jet')
 		plt.colorbar(location='left')
 		plt.xlim(-2*self.h,1+2*self.h)
 		plt.ylim(-2*self.h,1+2*self.h)
@@ -855,11 +847,9 @@ class Stokes:
 		for i in range(2):
 			for j in range(3):
 				for x in dom:
-					plt.plot([x,x],[0,1],'lightgrey',lw=2,zorder=0)
-					plt.plot([0,1],[x,x],'lightgrey',lw=2,zorder=0)
-		plt.scatter(x1,y1,marker='o',
-			  		vmin=min(c1),vmax=max(c1),
-					c=c1,cmap='jet',zorder=1)
+					plt.plot([x,x],[0,1],'lightgrey',lw=2)
+					plt.plot([0,1],[x,x],'lightgrey',lw=2)
+		plt.scatter(x1,y1,marker='o',vmin=min(c1),vmax=max(c1),c=c1,cmap='jet')
 		plt.colorbar(location='right')
 		plt.xlim(-2*self.h,1+2*self.h)
 		plt.ylim(-2*self.h,1+2*self.h)
@@ -962,8 +952,8 @@ class Stokes:
 			return u_solution(x,y),v_solution(x,y)
 		return solution
 
-	def	error(self,qpn=5,which=None):
-		uh,vh = self.sol(sep=True,weights=which)
+	def	error(self,qpn=5):
+		uh,vh,ph = self.sol(sep=True)
 		l2_err = np.zeros(2)
 		for	e in self.mesh.u_elements:
 			if e.dim == 0:

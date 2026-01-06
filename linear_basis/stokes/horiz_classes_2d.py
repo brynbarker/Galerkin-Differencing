@@ -2,9 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
 
-from cubic_basis.mac_grid.classes_2d import Node, Element, Mesh, Solver
-from cubic_basis.mac_grid.helpers_2d import vis_constraints
-from cubic_basis.mac_grid.shape_functions_2d import phi3
+from linear_basis.mac_grid.classes_2d import Node, Element, Mesh, Solver
+from linear_basis.mac_grid.helpers_2d import vis_constraints
 
 
 class HorizontalRefineMesh(Mesh):
@@ -15,33 +14,31 @@ class HorizontalRefineMesh(Mesh):
 		self.interface[0] = [[],[]]
 		self.periodic[0] = []
 		H = self.h*2
-		xdom = np.linspace(0-H,0.5+H,int(self.N/2)+3)
-		ydom = np.linspace(0-3*H/2,1+3*H/2,self.N+4)
+		xdom = np.linspace(0,0.5,int(self.N/2)+1)
+		ydom = np.linspace(0-H/2,1+H/2,self.N+2)
 
 		xlen,ylen = len(xdom),len(ydom)
 
 		dof_id,e_id = 0,0
 		for i,y in enumerate(ydom):
-			interface_element = (i==1 or i==ylen-3)
-			side = i==1
+			interface_element = (i==0 or i==ylen-2)
+			side = i==0
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0<=x<.5) and (-H<y<1.):###
-					strt = dof_id-1-xlen
-					element = Element(e_id,j-1,i-1,x,y,H)
+				if (0<=x<.5) and (y<1):
+					strt = dof_id
+					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					self.elements.append(element)
 					if interface_element: element.set_interface(side)
 					e_id += 1
 				
-				### UNDO THIS
-				#if x==H:
-				if j == 0 or i == 0 or i == ylen-1:
+				if x==H:
 					self.boundaries.append(dof_id)
 
-				#if y < 2*H or y > 1-2*H:
-				#	self.periodic[0].append(dof_id)
+				if y < H or y > 1-H:
+					self.periodic[0].append(dof_id)
 				
 				if (x==.5 or x==0):# and (0 < y):
 					self.interface[0][x==.5].append(dof_id)
@@ -55,28 +52,29 @@ class HorizontalRefineMesh(Mesh):
 		self.interface[1] = [[],[]]
 		self.periodic[1] = []
 		H = self.h
-		xdom = np.linspace(0.5-H,1.+H,self.N+3)
-		ydom = np.linspace(0-3*H/2,1+3*H/2,2*self.N+4)
+		xdom = np.linspace(0.5,1.,self.N+1)
+		ydom = np.linspace(0-H/2,1+H/2,2*self.N+2)
 
 		xlen,ylen = len(xdom),len(ydom)
 
 		dof_id,e_id = self.n_coarse_dofs,self.n_coarse_els
 		for i,y in enumerate(ydom):
-			interface_element = (i==1 or i==ylen-3)
-			side = i==1
+			interface_element = (i==0 or i==ylen-2)
+			side = i==0
 			for j,x in enumerate(xdom):
 				self.dofs[dof_id] = Node(dof_id,j,i,x,y,H)
 
-				if (0.5<=x<1.) and (-H<y<1.):####
-					strt = dof_id-1-xlen
+				if (0.5<=x<1.) and (y<1):
+					strt = dof_id
 					element = Element(e_id,j,i,x,y,H)
 					element.add_dofs(strt,xlen)
 					element.set_fine()
 					self.elements.append(element)
 					if interface_element: element.set_interface(side)
+					
 					e_id += 1
 
-				if y < 2*H or y > 1.-2*H:
+				if y < H or y > 1-H:
 					self.periodic[1].append(dof_id)
 				if (x == 0.5 or x==1.):# and (0 < y):
 					self.interface[1][x==.5].append(dof_id)
@@ -100,36 +98,31 @@ class HorizontalRefineSolver(Solver):
 			self.Id[f_inter[j]] = 1
 			self.C_full[f_inter[j]] *= 0
 
-		v1, v3, v5, v7 = phi3(1/4,1), phi3(3/4,1), phi3(5/4,1), phi3(7/4,1)
-		
 		for j in range(2):
-			self.C_full[f_inter[j][1:-1:2],c_inter[j][:-3]] = v5
-			self.C_full[f_inter[j][1:-1:2],c_inter[j][1:-2]] = v1
-			self.C_full[f_inter[j][1:-1:2],c_inter[j][2:-1]] = v3
-			self.C_full[f_inter[j][1:-1:2],c_inter[j][3:]] = v7
+			self.C_full[f_inter[j][1::2],c_inter[j][:-1]] = 1/4
+			self.C_full[f_inter[j][1::2],c_inter[j][1:]] = 3/4
 
-			self.C_full[f_inter[j][2::2],c_inter[j][:-3]] = v7
-			self.C_full[f_inter[j][2::2],c_inter[j][1:-2]] = v3
-			self.C_full[f_inter[j][2::2],c_inter[j][2:-1]] = v1
-			self.C_full[f_inter[j][2::2],c_inter[j][3:]] = v5
+			self.C_full[f_inter[j][::2],c_inter[j][:-1]] = 3/4
+			self.C_full[f_inter[j][::2],c_inter[j][1:]] = 1/4
 
-		### UNDO THIS
-		for level in [1]:#range(2):
-			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
-			ghost_list = np.hstack((b0,b1,t2,t3))
+		for level in range(2):
+			# lower case are ghosts, upper case are true dofs
+			b0,B1,T0,t1 = np.array(self.mesh.periodic[level]).reshape((4,-1))
+			ghost_list = np.hstack((b0,t1))
 			self.mesh.periodic_ghost.append(ghost_list)
 			self.C_full[ghost_list] *= 0.
-			self.Id[ghost_list] = 1.
-			Ds,ds = [T0,T1,B2,B3],[b0,b1,t2,t3]
+			Ds,ds = [T0,B1],[b0,t1]
 			for (D,d) in zip(Ds,ds):
-				self.C_full[d,D] = 1
-				for ind in [1,-2]:
-					if level == 0:
+				for ind in [0,-1]:
+					if level==0:
 						self.C_full[:,D[ind]] += self.C_full[:,d[ind]]
-					if level ==1:
+					if level == 1:
 						self.C_full[d[ind],:] = self.C_full[D[ind],:]
+				self.C_full[d,D] = 1.
+			self.Id[ghost_list] = 1.
 
 		self.C_full[:,list(np.where(self.Id==1)[0])] *= 0
+		per = self.mesh.periodic[0]+self.mesh.periodic[1]
 		for dof_id in self.mesh.boundaries:
 			self.C_full[dof_id] *= 0
 			self.Id[dof_id] = 1.
@@ -158,7 +151,10 @@ class HorizontalRefineSolver(Solver):
 		el_ind = fine*self.mesh.n_coarse_els+y_ind*n_x_els[fine]+x_ind
 		e = self.mesh.elements[int(el_ind)]
 		assert x >= min(e.plot[0]) and x <= max(e.plot[0])
-		assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+		try:
+			assert y >= min(e.plot[1]) and y <= max(e.plot[1])
+		except:
+			print(y, y/((2-fine)*self.h), y_ind,e.x, e.y, e.h,sep='\t')
 		return e
 
 
