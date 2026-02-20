@@ -1,11 +1,13 @@
 import numpy as np
 import pickle
-from paper_1 import shape_functions
+from general_solve import shape_functions
 
 class Integrator:
-	def __init__(self,qpn,dim):
+	def __init__(self,qpn,dim,ords):#=[3,3]):
 		self.qpn = qpn
 		self.dim = dim
+		self.ords = ords
+		self.prod = np.prod([ord+1 for ord in self.ords])
 
 		[p,w] = np.polynomial.legendre.leggauss(qpn)
 		self.points = p
@@ -13,13 +15,15 @@ class Integrator:
 		self.W = np.array(w)
 
 		if dim == 2:
-			self.id_map = {ID:[int(ID/4),ID%4] for ID in range(16)}
-			self.phi = shape_functions.phi3_2d_ref
-			self.dphi = shape_functions.dphi3_2d_ref
+			chop = self.ords[0]+1
+			total = (self.ords[0]+1)*(self.ords[1]+1)
+			self.id_map = {ID:[int(ID/chop),ID%chop] for ID in range(total)}
 		if dim == 3:
-			self.id_map = {ID:[int(ID/4)%4,ID%4,int(ID/16)] for ID in range(64)}
-			self.phi = shape_functions.phi3_3d_ref
-			self.dphi = shape_functions.dphi3_3d_ref
+			chop = self.ords[0]+1
+			chop2 = self.ords[1]+1
+			total = chop*chop2*(self.ords[2]+1)
+			self.id_map = {ID:[int(ID/chop)%chop2,ID%chop,int(ID/chop/chop2)] for ID in range(total)}
+		self.phi,self.dphi = shape_functions._get_phi_refs(self.ords,self.dim)
 
 		self._compute_quad_bounds()
 		self._get_phi_and_dphi_vals()
@@ -38,7 +42,7 @@ class Integrator:
 	def _get_phi_and_dphi_vals(self):
 		self.phi_vals = {}
 		self.dphi_vals = {}
-		for test_id in range(4**self.dim):
+		for test_id in range(self.prod):
 			test_ind = self.id_map[test_id]
 
 			phi_test = lambda x,y: self.phi(x,y,1,test_ind)
@@ -56,13 +60,13 @@ class Integrator:
 
 	def _get_vals(self,k=True):
 		lab = 'k' if k else 'm'			
-		fname = '{}_vals_p3_qpn{}.pickle'.format(lab,self.qpn)
+		fname = '{}_vals_p{}{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
 		try:
 			with open(fname,'rb') as handle:
 				vals = pickle.load(handle)
 		except:
 			vals = {}
-			size = 4**self.dim
+			size = self.prod#4**self.dim
 			for id in range(len(self.quad_bounds)):
 				local = np.zeros((size,size))
 				for i in range(size):

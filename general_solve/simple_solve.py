@@ -1,59 +1,62 @@
 import numpy as np
 from scipy import sparse
 
-from paper_1 import shape_functions
+#from general_solve import shape_functions
 
-def gauss(f,a,b,c,d,qpn):
-	xmid, ymid = (a+b)/2, (c+d)/2
-	xscale, yscale = (b-a)/2, (d-c)/2
-	[p,w] = np.polynomial.legendre.leggauss(qpn)
-	outer = 0.
-	for j in range(qpn):
-		inner = 0.
-		for i in range(qpn):
-			inner += w[i]*f(xscale*p[j]+xmid,yscale*p[i]+ymid)
-		outer += w[j]*inner
-	return outer*xscale*yscale
+#def gauss(f,a,b,c,d,qpn):
+#	xmid, ymid = (a+b)/2, (c+d)/2
+#	xscale, yscale = (b-a)/2, (d-c)/2
+#	[p,w] = np.polynomial.legendre.leggauss(qpn)
+#	outer = 0.
+#	for j in range(qpn):
+#		inner = 0.
+#		for i in range(qpn):
+#			inner += w[i]*f(xscale*p[j]+xmid,yscale*p[i]+ymid)
+#		outer += w[j]*inner
+#	return outer*xscale*yscale
 
-def local_stiffness(h,qpn,quadbounds):
-	x0,x1,y0,y1 = np.array(quadbounds)*h
-	K = np.zeros((16,16))
-	id_to_ind = {ID:[int(ID/4),ID%4] for ID in range(16)}
+#def local_stiffness(h,qpn,quadbounds,ords=[3,3]):
+#	x0,x1,y0,y1 = np.array(quadbounds)*h
+#	sizes = [ord+1 for ord in ords]
+#	full_size = np.prod(sizes)
+#	K = np.zeros((full_size,full_size))
+#	id_to_ind = {ID:[int(ID/sizes[0]),ID%sizes[0]] for ID in range(full_size)}
+#
+#	for test_id in range(full_size):
+#
+#		test_ind = id_to_ind[test_id]
+#		grad_phi_test = lambda x,y: shape_functions.dphi_2d_ref(ords,x,y,h,test_ind)
+#
+#		for trial_id in range(test_id,full_size):
+#
+#			trial_ind = id_to_ind[trial_id]
+#			grad_phi_trial = lambda x,y: shape_functions.dphi_2d_ref(ords,x,y,h,trial_ind)
+#
+#			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
+#			val = gauss(func,x0,x1,y0,y1,qpn)
+#
+#			K[test_id,trial_id] += val
+#			K[trial_id,test_id] += val * (test_id != trial_id)
+#	return K
 
-	for test_id in range(16):
-
-		test_ind = id_to_ind[test_id]
-		grad_phi_test = lambda x,y: shape_functions.dphi3_2d_ref(x,y,h,test_ind)
-
-		for trial_id in range(test_id,16):
-
-			trial_ind = id_to_ind[trial_id]
-			grad_phi_trial = lambda x,y: shape_functions.dphi3_2d_ref(x,y,h,trial_ind)
-
-			func = lambda x,y: grad_phi_trial(x,y) @ grad_phi_test(x,y)
-			val = gauss(func,x0,x1,y0,y1,qpn)
-
-			K[test_id,trial_id] += val
-			K[trial_id,test_id] += val * (test_id != trial_id)
-	return K
-
-def gauss(f,a,b,c,d,qpn):
-	xmid, ymid = (a+b)/2, (c+d)/2
-	xscale, yscale = (b-a)/2, (d-c)/2
-	[p,w] = np.polynomial.legendre.leggauss(qpn)
-	outer = 0.
-	for j in range(qpn):
-		inner = 0.
-		for i in range(qpn):
-			inner += w[i]*f(xscale*p[j]+xmid,yscale*p[i]+ymid)
-		outer += w[j]*inner
-	return outer*xscale*yscale
+#def gauss(f,a,b,c,d,qpn):
+#	xmid, ymid = (a+b)/2, (c+d)/2
+#	xscale, yscale = (b-a)/2, (d-c)/2
+#	[p,w] = np.polynomial.legendre.leggauss(qpn)
+#	outer = 0.
+#	for j in range(qpn):
+#		inner = 0.
+#		for i in range(qpn):
+#			inner += w[i]*f(xscale*p[j]+xmid,yscale*p[i]+ymid)
+#		outer += w[j]*inner
+#	return outer*xscale*yscale
 
 class SimpleSolver:
 	def __init__(self,mesh,integrator):
 		self.mesh = mesh
 		self.integrator = integrator
 		self.dim = mesh.dim
+		# self.ords = mesh.ords
 
 		self.lookup = None # needs to be overwritten
 		self.blocks = []

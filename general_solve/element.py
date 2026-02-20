@@ -1,11 +1,12 @@
 
 class Element:
-	def __init__(self,ID,dim,inds,loc,h):
+	def __init__(self,ID,dim,inds,loc,h,ords):#=[3,3]):
 		self.ID = ID
 		self.dim = dim
 		self.h = h
 		self.loc = loc
 		self.ind = inds
+		self.ords = ords
 		if dim == 2:
 			self.i,self.j = inds
 			self.x,self.y = loc
@@ -38,15 +39,15 @@ class Element:
 			return self.add_dofs_3d(strt,lens)
 
 	def add_dofs_2d(self,strt,xlen):
-		for ii in range(4):
-			for jj in range(4):
+		for ii in range(self.ords[1]+1):
+			for jj in range(self.ords[0]+1):
 				self.dof_lookup_ids.append(strt+xlen*ii+jj)
 		return
 
 	def add_dofs_3d(self,strt,xlen):
-		for	kk in range(4):
-			for	ii in range(4):
-				for	jj in range(4):
+		for	kk in range(self.ords[2]+1):
+			for	ii in range(self.ords[1]+1):
+				for	jj in range(self.ords[0]+1):
 					self.dof_lookup_ids.append(strt+jj+ii*xlen+kk*xlen*xlen)
 		return
 

@@ -2,21 +2,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import sparse
 import scipy.sparse.linalg as sla
-from paper_1.mesh import Mesh
-from paper_1.integration import Integrator
-from paper_1.simple_solve import LaplaceOperator,ProjectionOperator
-from paper_1.constraints import ConstraintOperator
+from general_solve.mesh import Mesh
+from general_solve.integration import Integrator
+from general_solve.simple_solve import LaplaceOperator,ProjectionOperator
+from general_solve.constraints import ConstraintOperator
 
 class Solver:
-	def __init__(self,N,dim,dofloc,rtype,u,f=None,qpn=5,dirichlet=False):
+	def __init__(self,N,dim,dofloc,rtype,rname=None,u=None,ords=[3,3],qpn=5,dirichlet=False):
 		self.N = N
 		self.dim = dim
 		self.ufunc = u
-		self.ffunc = f #needs to be overwritten 
+		self.ffunc = None #needs to be overwritten 
 		self.qpn = qpn
-		self.integrator = Integrator(qpn,dim)
+		self.integrator = Integrator(qpn,dim,ords)
+		self.ords = ords
 
-		self.mesh = Mesh(N,dim,dofloc,rtype)
+		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname)
 		self.h = self.mesh.h
 
 		self.lap = LaplaceOperator(self.mesh,self.integrator,mu=1)
@@ -93,6 +94,18 @@ class Solver:
 						l2_err += self.integrator._compute_error_integral(u_vals,uh_vals,vol)
 		return np.sqrt(l2_err)
 
+	def evaluate_on_grid(self,func):
+		tmp = []
+		for p in self.mesh.patches:
+			for lookup_id in p.dofs:
+				dof = p.dofs[lookup_id]
+				if self.dim == 2:
+					tmp.append(func(dof.x,dof.y))
+				if self.dim == 3:
+					tmp.append(func(dof.x,dof.y,dof.z))
+		return np.array(tmp)
+
+
 	def Linf_error(self,U):
 		if self.U_true is None:
 			tmp = []
@@ -104,10 +117,12 @@ class Solver:
 					if self.dim == 3:
 						tmp.append(self.ufunc(dof.x,dof.y,dof.z))
 			self.U_true = np.array(tmp)
-		return np.linalg.norm(U-self.U_true)
+		Utmp = (U-self.U_true)[self.constraints.true_dofs]
+
+		return np.linalg.norm(Utmp)
 
 
-	def solve_simple(self,f,op):
+	def solve_simple(self,f,op,disp=True):
 		op._build_force(f)
 		op._build_system()
 
@@ -115,6 +130,7 @@ class Solver:
 		if self.dirichlet:
 			lhs = C.T @ op.spB @ C
 			rhs = C.T.dot(op.F-op.spB.dot(self.constraints.dirichlet))
+			solver = sla.cg
 		else:
 			sparse1 = sparse.coo_array(
 				([1],([0],[0])),shape=(1,1)).tocsc()
@@ -127,20 +143,31 @@ class Solver:
 			lhs = padded_C.T @ full_sys @ padded_C
 			padded_F = np.hstack((op.F,np.array([0.])))
 			rhs = padded_C.T.dot(padded_F)
+			solver = sla.gmres
 
-		try:
-			x,conv = sla.gmres(lhs,rhs,rtol=1e-13)
-			assert conv == 0
-		except:
-			print('Solver did not converge, check self.totest')
-			self.totest = [lhs,rhs]
-			return
+		x = np.linalg.solve(lhs.todense(),rhs)
+		# try:
+		# 	# x = np.linalg.solve(lhs.todense(),rhs)
+		# 	if self.dirichlet:
+		# 		x,conv = solver(lhs,rhs,rtol=1e-13)
+		# 		assert conv == 0
+		# 	else:
+		# 		x = np.linalg.solve(lhs.todense(),rhs)
+		# except:
+		# 	try:
+		# 		x = np.linalg.solve(lhs.todense(),rhs)
+		# 	except:
+		# 		print('Solver did not converge, check self.totest')
+		# 		self.totest = [lhs,rhs]
+		# 		return
+
 
 		if self.dirichlet:
 			U = C.dot(x) + self.constraints.dirichlet
 		else:
 			tmp = padded_C.dot(x)
-			print('lambda = {}'.format(tmp[-1]))
+			if disp:
+				print('lambda = {}'.format(tmp[-1]))
 			U = tmp[:-1]
 
 		op.set_U(U)
@@ -148,18 +175,22 @@ class Solver:
 		Linf_err = self.Linf_error(U)
 		op.set_error(err)
 		op.set_error(Linf_err,Linf=True)
-		print('L2 error     = {}'.format(err))
-		print('Linf error   = {}'.format(Linf_err))
 
-	def solve_poisson(self,f=None):
+		self.solve_system = [lhs,rhs,padded_C,U]
+
+		if disp:
+			print('L2 error     = {}'.format(err))
+			print('Linf error   = {}'.format(Linf_err))
+
+	def solve_poisson(self,f=None,disp=True):
 		if self.ffunc is None:
 			assert f is not None
 		if f is None:
 			f = self.ffunc
-		self.solve_simple(f,self.lap)
+		self.solve_simple(f,self.lap,disp)
 
-	def solve_projection(self):
-		self.solve_simple(self.ufunc,self.mass)
+	def solve_projection(self,disp=True):
+		self.solve_simple(self.ufunc,self.mass,disp)
 
 
 	def vis_dof_sol(self,U):
@@ -420,39 +451,39 @@ class Solver:
 	#		val = gauss(func,e.x,e.x+e.h,e.y,e.y+e.h,qpn)
 	#		l2_err += val
 	#	return np.sqrt(l2_err)
-
-class Laplace(Solver):
-	def __init__(self,N,u,f,qpn=5):
-		super().__init__(N,u,f,qpn)
-		self._setup_constraints()
-
-	def solve(self):
-		self._build_stiffness()
-		self._build_force()
-		LHS = self.C.T @ self.K @ self.C
-		RHS = self.C.T @ (self.F )#- self.K @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.K @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x #+ self.dirichlet
-		self.solved = True
-
-
-class Projection(Solver):
-	def __init__(self,N,u,qpn=5):
-		super().__init__(N,u,u,qpn)
-
-	def solve(self):
-		self._build_mass()
-		self._build_force()
-		self._setup_constraints()
-		LHS = self.C.T @ self.M @ self.C
-		RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
-		#LHS = self.C_rect.T @ self.M @ self.C_rect
-		#RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
-		x = la.solve(LHS,RHS)
-		self.U = self.C @ x + self.dirichlet
-		self.solved = True
-		return x
-
+#
+#class Laplace(Solver):
+#	def __init__(self,N,u,f,qpn=5):
+#		super().__init__(N,u,f,qpn)
+#		self._setup_constraints()
+#
+#	def solve(self):
+#		self._build_stiffness()
+#		self._build_force()
+#		LHS = self.C.T @ self.K @ self.C
+#		RHS = self.C.T @ (self.F )#- self.K @ self.dirichlet)
+#		#LHS = self.C_rect.T @ self.K @ self.C_rect
+#		#RHS = self.C_rect.T @ (self.F - self.K @ self.dirichlet)
+#		x = la.solve(LHS,RHS)
+#		self.U = self.C @ x #+ self.dirichlet
+#		self.solved = True
+#
+#
+#class Projection(Solver):
+#	def __init__(self,N,u,qpn=5):
+#		super().__init__(N,u,u,qpn)
+#
+#	def solve(self):
+#		self._build_mass()
+#		self._build_force()
+#		self._setup_constraints()
+#		LHS = self.C.T @ self.M @ self.C
+#		RHS = self.C.T @ (self.F - self.M @ self.dirichlet)
+#		#LHS = self.C_rect.T @ self.M @ self.C_rect
+#		#RHS = self.C_rect.T @ (self.F - self.M @ self.dirichlet)
+#		x = la.solve(LHS,RHS)
+#		self.U = self.C @ x + self.dirichlet
+#		self.solved = True
+#		return x
+#
 
