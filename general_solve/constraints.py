@@ -29,6 +29,7 @@ class ConstraintOperator:
 		self._setup_boundary(dirichlet)
 		self._construct_matrix()
 
+
 	def _global_dof_id(self,dof_id,p_id):
 		# input dof id relative to patch NOT LOOKUP IDS
 		if isinstance(dof_id,list):
@@ -49,6 +50,10 @@ class ConstraintOperator:
 			return (dof_id-self.dof_id_shift,1)
 		else:
 			return (dof_id,0)
+
+	def get_dof(self,dof_id): # this input is the dof id used in C
+		local_id,p_id = self._local_dof_id(dof_id)
+		return self.patches[p_id].get_dof(local_id)
 
 	def _set_patches(self,dirichlet=False):
 
@@ -234,7 +239,7 @@ class ConstraintOperator:
 
 		num_true = len(self.true_dofs)
 		self.tocheck = [Cc]
-		return
+		# return
 		self.spC = sparse.coo_array((self.Cd,(self.Cr,Cc)),shape=(self.size,num_true)).tocsc()
 
 		# sums = self.spC.sum(axis=1)

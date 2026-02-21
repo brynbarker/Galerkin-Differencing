@@ -180,4 +180,5 @@ cython_debug/
 # txt files
 *.txt
 *.npy
-
+*.pickle
+*.pkl

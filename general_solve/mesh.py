@@ -90,7 +90,7 @@ class Mesh:
 
 		plt.show()
 
-	def view_detailed(self):
+	def view_detailed(self,large=True):
 		if self.dim ==2:
 			quad_bounds = [[0,.5,0,.5],
 				[.5,1,0,.5],[0,.5,.5,1],[.5,1,.5,1]]
@@ -99,7 +99,8 @@ class Mesh:
 				[.5,1,0,.5,0,.5],[0,.5,.5,1,0,.5],[.5,1,.5,1,0,.5],
 				[0,.5,0,.5,.5,1],[.5,1,0,.5,.5,1],
 				[0,.5,.5,1,.5,1],[.5,1,.5,1,.5,1]]
-		fig,ax = plt.subplots(2,1,figsize=(10,10))
+		fgsz = (20,10) if large else (6,3)
+		fig,ax = plt.subplots(1,2,figsize=fgsz)
 
 		for level in range(2):
 			H = self.h/(1+level)

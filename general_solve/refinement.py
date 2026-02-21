@@ -12,6 +12,9 @@ stripe_refinement_type	= {'vertfinecenter':0,
 						   'horzfinecenter':2,
 						   'horzcoarsecenter':3}
 
+# the way this works is we 
+# 1. setup the info
+# 2. get the info
 class RefinementPattern:
 	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
 		self.name =	name
@@ -171,9 +174,6 @@ class RefinementPattern:
 		loose_center	= lambda x:	.25	< x	< .75
 		domain =	lambda x: 0	<= x <=	1
 		
-		far_in = lambda x,d: edges[d][1] <= x <= edges[d][2]
-		far_out = lambda x,d: edges[d][0] <= x or x >= edges[d][3]
-
 		# for dof search
 		periodic_check = lambda	x: 0 <=	x <	1
 		periodic_check_full	= lambda loc: self._not_all_d(periodic_check,loc)
@@ -193,6 +193,9 @@ class RefinementPattern:
 				extraL.append(H*self.shifts_L[i])
 				extraR.append(H*self.shifts_R[i])
 			
+		far_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
+		far_out = lambda x,d: i_edges[d][0] >= x or x >= i_edges[d][3]
+
 		block =	lambda x,d: i_edges[d][0]-extraL[d] <=	x <= i_edges[d][-1]+extraR[d]
 		slice =	lambda x,d: (i_edges[d][0]<=x<=i_edges[d][1]) or (i_edges[d][2]<=x<=i_edges[d][-1])
 
@@ -250,7 +253,7 @@ class RefinementPattern:
 		tmp = self._setup_info(coarse=False)
 		### must be overwritten
   
-	def get_info(self,coarse=True):
+	def _get_info(self,coarse=True):
 		if coarse:
 			doms, checks = self._setup_coarse_info()
 			H = self.h
@@ -304,9 +307,9 @@ class RefinementPattern:
 		return d_info,self.e_data[L],self.i_data[L][:2],[len(dom) for dom in doms]
 
 	def	get_coarse_info(self):
-		return self.get_info(coarse=True)
+		return self._get_info(coarse=True)
 	def	get_fine_info(self):
-		return self.get_info(coarse=False)
+		return self._get_info(coarse=False)
 		#H =	self.h/2
 		#start =	0 if self.node else	-H/2
 		#end	= 1	if self.node else 1+H/2
@@ -571,7 +574,8 @@ class StripeRefinement(RefinementPattern):
 		emini =	lambda x: -H < x < .25 or .75-H < x < 1
 		emini_nonr = lambda x: -H < x < 1
 		echeck = lambda loc: emini(loc[rdim]) and emini_nonr(loc[1-rdim])
-		quad =	lambda loc:	domain(loc[1-rdim]) and not loose_center(loc[rdim])
+		quad =	lambda loc:	self._all_d(domain,loc) and not loose_center(loc[rdim])
+		#quad =	lambda loc:	domain(loc[1-rdim]) and not loose_center(loc[rdim])
 
 		return check, echeck, quad
 
@@ -605,10 +609,15 @@ class StripeRefinement(RefinementPattern):
 		center,loose_center, domain, far_in, far_out = funcs[:5]
 		periodic, dirichlet, block, slice = funcs[-4:]
 
+
 		rdim = int(self.rtype/2) # vertical or horizontal stripe
+		# here is what far in is doing
+		# let's look at the values for edges[rdim][1,2]
+		#far_in = lambda x,d: edges[d][1] <= x <= edges[d][2]
 		if self.rtype % 2: # fine edges
 			check, echeck, quad = self.edge_checks(H,edges,domain,loose_center)
-			ghost = lambda loc: far_in(loc[rdim],rdim)
+			myfar_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
+			ghost = lambda loc: myfar_in(loc[rdim],rdim)
 		else: # fine stripe
 			check,echeck,quad = self.stripe_checks(H,edges,domain,center)
 			ghost = lambda loc: far_out(loc[rdim],rdim)
