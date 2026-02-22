@@ -462,7 +462,7 @@ class SquareRefinement(RefinementPattern):
 
 		### let's change things so that low support gives us the corners
 		corner = lambda x,d: x <= edges[d][0] or x >= edges[d][-1]
-		low_support = lambda loc: self._all_d(corner,loc)
+		low_support = lambda loc: False#self._all_d(corner,loc)
 		# if self.node:
 		# 	low_support = lambda loc: False
 		# else:
