@@ -176,3 +176,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# txt files
+*.txt
+*.npy
+*.pickle
+*.pkl

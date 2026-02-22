@@ -235,26 +235,30 @@ class Solver:
 		mk = ['^','o']
 		for dof in self.mesh.dofs.values():
 			m = mk[dof.h==self.mesh.h]
+			c = 'grey' if self.Id[dof.ID] else 'k'
 			if dof.i == 0 and dof.j==0 and dof.ID !=0:
-				plt.scatter(dof.x,dof.y,marker=m,color='k',label='dof')
-			plt.scatter(dof.x,dof.y,marker=m,color='k')
+				plt.scatter(dof.x,dof.y,marker=m,color=c,label='dof')
+			plt.scatter(dof.x,dof.y,marker=m,color=c)
 
 		fine_inter = [dof for side in self.mesh.interface[2*corner+1] for dof in side]
 		#fine_inter = self.mesh.interface[2*corner+1][0]+self.mesh.interface[2*corner+1][1]
 		for i,i_id in enumerate(fine_inter):
-			assert self.Id[i_id]
+			assert self.Id[i_id] or corner
 			dof = self.mesh.dofs[i_id]
+			assert dof.h==self.h
+			c = 'C1' if self.Id[i_id] else 'k'
 			if i==0:
-				plt.scatter(dof.x,dof.y,marker='o',color='C1',label='interface')
-			plt.scatter(dof.x,dof.y,marker='o',color='C1')
+				plt.scatter(dof.x,dof.y,marker='o',color=c,label='interface')
+			plt.scatter(dof.x,dof.y,marker='o',color=c)
 
 		for level in range(2):
 			for i,g_id in enumerate(self.mesh.periodic_ghost[level]):
 				assert self.Id[g_id]
 				dof = self.mesh.dofs[g_id]
+				m = '^' if corner else mk[level]
 				if i==0 and level==1:
-					plt.scatter(dof.x,dof.y,marker=mk[level],color='C0',label='periodic')
-				plt.scatter(dof.x,dof.y,marker=mk[level],color='C0')
+					plt.scatter(dof.x,dof.y,marker=m,color='C0',label='periodic')
+				plt.scatter(dof.x,dof.y,marker=m,color='C0')
 
 		for i,b_id in enumerate(self.mesh.boundaries):
 			assert self.Id[b_id]

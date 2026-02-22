@@ -35,11 +35,13 @@ class HorizontalRefineMesh(Mesh):
 					if interface_element: element.set_interface(side)
 					e_id += 1
 				
-				if x==H:
+				### UNDO THIS
+				#if x==H:
+				if j == 0 or i == 0 or i == ylen-1:
 					self.boundaries.append(dof_id)
 
-				if y < 2*H or y > 1-2*H:
-					self.periodic[0].append(dof_id)
+				#if y < 2*H or y > 1-2*H:
+				#	self.periodic[0].append(dof_id)
 				
 				if (x==.5 or x==0):# and (0 < y):
 					self.interface[0][x==.5].append(dof_id)
@@ -111,7 +113,8 @@ class HorizontalRefineSolver(Solver):
 			self.C_full[f_inter[j][2::2],c_inter[j][2:-1]] = v1
 			self.C_full[f_inter[j][2::2],c_inter[j][3:]] = v5
 
-		for level in range(2):
+		### UNDO THIS
+		for level in [1]:#range(2):
 			b0,b1,B2,B3,T0,T1,t2,t3 = np.array(self.mesh.periodic[level]).reshape((8,-1))
 			ghost_list = np.hstack((b0,b1,t2,t3))
 			self.mesh.periodic_ghost.append(ghost_list)

@@ -101,15 +101,31 @@ class VerticalRefineSolver(Solver):
 
 		for j in range(2):
 			c_a, c_b = np.array(c_inter[j]).reshape((2,-1))
-			self.C_full[f_inter[j][::2],c_a] = 1
-			self.C_full[f_inter[j][::2],c_b] = 1
+			if j:
+				c_ghost, c_dof = c_b, c_a
+			else:
+				c_ghost, c_dof = c_a, c_b
+			self.Id[c_ghost] = 1
+			self.C_full[c_ghost] *= 0
 
-			self.C_full[f_inter[j][1::2],c_a[:-1]] = 1/2
-			self.C_full[f_inter[j][1::2],c_b[:-1]] = 1/2
-			self.C_full[f_inter[j][1::2],c_a[1:]] = 1/2
-			self.C_full[f_inter[j][1::2],c_b[1:]] = 1/2
+			self.C_full[f_inter[j][::2],c_dof] = 1
+			self.C_full[c_ghost,f_dofs[j][::2]] = 1
+			self.C_full[f_inter[j][1::2],c_dof[:-1]] = 1/2
+			self.C_full[f_inter[j][1::2],f_dofs[j][:-1:2]] = 1/2
+			self.C_full[f_inter[j][1::2],c_dof[1:]] = 1/2
+			self.C_full[f_inter[j][1::2],f_dofs[j][2::2]] = 1/2
 
-			self.C_full[f_inter[j],f_dofs[j]] = -1
+			self.C_full[f_inter[j][1::2],f_dofs[j][1::2]] = -1
+
+			#self.C_full[f_inter[j][::2],c_a] = 1
+			#self.C_full[f_inter[j][::2],c_b] = 1
+
+			#self.C_full[f_inter[j][1::2],c_a[:-1]] = 1/2
+			#self.C_full[f_inter[j][1::2],c_b[:-1]] = 1/2
+			#self.C_full[f_inter[j][1::2],c_a[1:]] = 1/2
+			#self.C_full[f_inter[j][1::2],c_b[1:]] = 1/2
+
+			#self.C_full[f_inter[j],f_dofs[j]] = -1
 
 		# periodic
 		for level in range(2):
