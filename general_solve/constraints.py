@@ -126,49 +126,71 @@ class ConstraintOperator:
 		self.dirichlet_Id_update = True
 		return
 	
-	#def _locate_low_support_squares(self):
-	#	if self.size == self.dof_id_shift:
-	#		return # uniform grid
+	def _locate_corners(self):
+		if self.size == self.dof_id_shift:
+			return # uniform grid
 
-	#	extraps = [4,-6,4,-1]
+		# this is for order 3 and 2
+		extraps = {3:[4,-6,4,-1], 2:[3,-3,1]}
+		extraps = [2,-1]
 
-	#	for p_id,patch in enumerate(self.patches):
-	#		tmp = patch.dofs[patch.low_support_square[0]]
-	#		BL = [tmp.x,tmp.y]
-	#		tmp = patch.dofs[patch.low_support_square[-1]]
-	#		TR = [tmp.x,tmp.y]
+		def corner_sides(x,y):
+			xlo = x < .25
+			xhi = x > .75
 
-	#		corners = [[BL[0],TR[0]],[BL[1],TR[1]]]
+			ylo = y < .25
+			yhi = y > .75
 
-	#		constraint_pairs = []
+			if not ((xlo or xhi) and (ylo or yhi)):
+				print('false alarm')
+				return False,None
 
-	#		for lookup_id in patch.low_support_square:
-	#			dof = patch.dofs[lookup_id]
-	#			if dof.x in corners[0] and dof.y in corners[1]:
-	#				xside = corners[0].index(dof.x)
-	#				yside = corners[1].index(dof.y)
-	#				# this is a corner
-	#				if p_id == self.bpatch: # not the center
-	#					istep,jstep = 2*yside-1,2*xside-1
-	#					istart,jstart = dof.i+2*yside-1,dof.j+2*xside-1
-	#					for i_it in range(4):
-	#						for j_it in range(4):
-	#							ind = [istart+istep*i_it,jstart+jstep*j_it]
-	#							val = extraps[i_it]*extraps[j_it]
-	#							c_lookup_id = patch._get_lookup_id_from_ind(ind)
-	#							constraint_pairs.append([patch.dofs[c_lookup_id].ID,val])
-	#			elif dof.x in corners[0]:
-	#				
+			return True, [xhi,yhi] # 0 if low and 1 if hi
 
+		self.corners = {}
 
+		# we also want to store all dofs that corners depend on
+		corner_deps = []
 
+		for p_id,p in enumerate(self.patches):
+			corner_dofs = [p.dofs[lookup] for lookup in p.corners]
 
+			# we have four corners, let's just do this manually for now
+			for c_dof in corner_dofs:
+				check, sides = corner_sides(c_dof.x,c_dof.y)
+				if check:
+					start_inds = [c_dof.j,c_dof.i]
+					extrap_inds = {0:[],1:[]}
+					for dim,(start,side) in enumerate(zip(start_inds,sides)):
+						sgn = -1 if side else 1
+						for step in range(2):#p.ords[dim]+1):
+							extrap_inds[dim].append(int(start+sgn*(step+1)))
+					
+					dof_list, weight_list = [],[]
+					# for x_weight,j in zip(extraps[p.ords[0]],extrap_inds[0]):
+					for x_weight,j in zip(extraps,extrap_inds[0]):
+						# for y_weight,i in zip(extraps[p.ords[1]],extrap_inds[1]):
+						for y_weight,i in zip(extraps,extrap_inds[1]):
+							weight = x_weight*y_weight
+							dof_lookup_id = p._get_lookup_id_from_ind([i,j])
+							dof_local_id = p.dofs[dof_lookup_id].ID
+							global_id = self._global_dof_id(dof_local_id,p_id)
 
-	#	boundary_patch = self.patches[self.bpatch]
-	#	center_patch = self.patches[1-self.bpatch]
+							dof_list.append(global_id)
+							weight_list.append(weight)
+					
+					c_global_id = self._global_dof_id(c_dof.ID,p_id)
+					self.corners[c_global_id] = (dof_list,weight_list)
+					corner_deps += dof_list
+
+		self.corner_deps = list(set(corner_deps))
+
 
 
 	def _setup_interface(self):
+
+		self._locate_corners()
+
 		if self.gpatch is None:
 			return
 
@@ -181,6 +203,7 @@ class ConstraintOperator:
 					to_return.append(global_id)
 			return to_return
 
+		corner_mods = {}
 
 		# ghost_vals = self.patches[self.gpatch].evaluate_interface_ghosts()
 		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
@@ -211,7 +234,32 @@ class ConstraintOperator:
 					self.Cr += [g_dof_id]*sum(mask)
 					self.Cc += local_dofs
 					self.Cd += list(sgn*local_vals)
-		
+
+					if g_dof_id in self.corner_deps:
+						corner_mods[g_dof_id] = (local_dofs,sgn*local_vals)
+
+		# now let's try setting the corners
+		for corner_id in self.corners:
+			if corner_id in self.ghost_list:
+				print('false alarm')
+				pass
+			else:
+				self.Id[corner_id] = 1
+				dof_list,weight_list = self.corners[corner_id]
+				for dof_id,weight in zip(dof_list,weight_list):
+
+					if dof_id in corner_mods:
+						# this is a little messy
+						mod_dofs,mod_vals = corner_mods[dof_id]
+						for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
+							self.Cr.append(corner_id)
+							self.Cc.append(mod_dof_id)
+							self.Cd.append(mod_val*weight)
+					else:
+						self.Cr.append(corner_id)
+						self.Cc.append(dof_id)
+						self.Cd.append(weight)
+
 	def _construct_matrix(self):
 		self.true_dofs = list(np.where(self.Id==0)[0])
 		for true_ind in self.true_dofs:

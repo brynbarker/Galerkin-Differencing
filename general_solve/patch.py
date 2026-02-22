@@ -18,7 +18,6 @@ class Patch:
 		self.elements = {}
 		self.periodic_pairs = {}
 		self.dirichlet_dofs = []
-		self.low_support = None
 		self.cell = dtype=='cell'
 		self.node = dtype=='node'
 		self.xside = dtype == 'xside'
@@ -29,7 +28,7 @@ class Patch:
 		self.alt_dof = {}
 		self.alt_el = {}
 		self.level = level
-		self.low_support = []
+		self.corners = []
 
 		self._setup()
 
@@ -99,7 +98,7 @@ class Patch:
 			if bc:
 				self.dirichlet_dofs.append(lookup_id)
 			if low:
-				self.low_support.append(lookup_id)
+				self.corners.append(lookup_id)
 			
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
@@ -195,13 +194,6 @@ class Patch:
 				m = 's'
 				filltype='none'
 				count += 1
-			# if lookup_id in self.periodic_pairs.keys():
-			# 	m = '^'
-			# 	filltype='none'
-			# 	count += 1
-			# if lookup_id in self.periodic_pairs.values():
-			# 	m = '^'
-			# 	count += 1
 			if count > 1:
 				m = '*'
 			if count == 0:

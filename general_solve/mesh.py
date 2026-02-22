@@ -177,11 +177,11 @@ class Mesh:
 				ext_dom = np.linspace(-2*H,1+2*H,(1+level)*self.N+5)
 				eps = H/8
 				for x in dom:
-					ax[level].plot([x,x],[0,1],'grey')
-					ax[level].plot([0,1],[x,x],'grey')
+					ax[level].plot([x,x],[0,1],'grey',zorder=0)
+					ax[level].plot([0,1],[x,x],'grey',zorder=0)
 				for x in ext_dom:
-					ax[level].plot([x,x],[-2*H,1+2*H],'grey',ls=':')
-					ax[level].plot([-2*H,1+2*H],[x,x],'grey',ls=':')
+					ax[level].plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
+					ax[level].plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
 
 				for id in self.patches[level].dofs:
 					dof = self.patches[level].dofs[id]
@@ -191,7 +191,7 @@ class Mesh:
 						locs[level].append(dof.loc)
 
 				x,y = np.array(locs[level]).T
-				plot = ax[level].scatter(x,y,c=c_vals[level],cmap='jet')	
+				plot = ax[level].scatter(x,y,c=c_vals[level],cmap='jet',zorder=1)	
 				fig.colorbar(plot,location=cbar_loc[level])
 
 				ax[level].set_aspect('equal')
