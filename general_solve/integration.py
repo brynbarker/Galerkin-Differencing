@@ -60,7 +60,8 @@ class Integrator:
 
 	def _get_vals(self,k=True):
 		lab = 'k' if k else 'm'			
-		fname = 'pickled/{}_vals_p{}{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
+		fname_prefix = '/home/bbb/Code/Galerkin-Differencing/general_solve/pickled/'
+		fname = fname_prefix+'{}_vals_p{}{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
 		try:
 			with open(fname,'rb') as handle:
 				vals = pickle.load(handle)
