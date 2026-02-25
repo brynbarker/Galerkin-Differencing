@@ -37,7 +37,7 @@ class RefinementPattern:
 		self.d_data = {i:[[],[]] for i in range(2)} # ind list and loc list
 		self.e_data = {i:[[],[],[]] for i in range(2)} # ind list and loc list and quads
 		self.b_data = {i:[[],[]] for i in range(2)} # periodic and dirichlet
-		self.i_data = {i:[[],[],[]] for i in range(2)}
+		self.i_data = {i:[[],[],[],[]] for i in range(2)}
 		self.g_data = {i:[[],[]] for i in range(2)}
 
 	def get_patch_id(self,loc):
@@ -221,7 +221,7 @@ class RefinementPattern:
 			H = self.h/2
 			L = 1
 		check, echeck, periodic, dirichlet = checks[:4]
-		low_support, quad, interface, ghost = checks[-4:]
+		corner, corner_support, quad, interface, ghost = checks[-5:]
 
 		if self.dim	== 2:
 			xdom,ydom = doms
@@ -232,7 +232,8 @@ class RefinementPattern:
 						self.d_data[L][1].append([x,y])
 						self.b_data[L][0].append(periodic([x,y]))
 						self.b_data[L][1].append(dirichlet([j,i]))
-						self.i_data[L][2].append(low_support([x,y]))
+						self.i_data[L][2].append(corner([x,y]))
+						self.i_data[L][3].append(corner_support([x,y]))
 					if echeck([x,y]):
 						self.e_data[L][0].append([i,j])
 						self.e_data[L][1].append([x,y])
@@ -261,7 +262,7 @@ class RefinementPattern:
 		#					e_loc_list.append([x,y,z])
 		#					e_quads.append(self._get_el_quads([x,y,z],H,quadcheck))
 		
-		d_info = self.d_data[L] + self.b_data[L] + [self.i_data[L][2]]
+		d_info = self.d_data[L] + self.b_data[L] + self.i_data[L][2:4]
 		return d_info,self.e_data[L],self.i_data[L][:2],[len(dom) for dom in doms]
 
 	def	get_coarse_info(self):
@@ -294,16 +295,17 @@ class UniformRefinement(RefinementPattern):
 		quad =	lambda loc:	self._all_d(domain,loc)
 		low_support = lambda loc: False
 
-		ghost = lambda loc: False
+		false = lambda loc: False
 
+		# corner, corner support, ghost all false
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  false,false, quad, interface, false]
 		return doms, checks
 
 	def _setup_fine_info(self):
 		doms = [[] for i in range(self.dim)]
 		tmp = lambda loc: False
-		return doms, [tmp]*8
+		return doms, [tmp]*9
 
 class StripeRefinement(RefinementPattern):
 	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
@@ -375,11 +377,11 @@ class StripeRefinement(RefinementPattern):
 		rdim = int(self.rtype/2) # vertical or horizontal stripe
 		interface = lambda loc: slice(loc[rdim],rdim)
 
-		low_support = lambda loc: False
-		ghost = lambda loc: False
+		false = lambda loc: False
 
+		#corner, cornersupport, ghost false
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  false,false, quad, interface, false] 
 		return doms, checks
 
 	def _setup_fine_info(self):
@@ -404,10 +406,11 @@ class StripeRefinement(RefinementPattern):
 
 		interface = lambda loc: slice(loc[rdim],rdim)
 
-		low_support = lambda loc: False
+		false = lambda loc: False
 
+		#corner, cornersupport false
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  false,false, quad, interface, ghost]
 		return doms, checks
 
 class SquareRefinement(RefinementPattern):
@@ -461,14 +464,24 @@ class SquareRefinement(RefinementPattern):
 		quad =	lambda loc:	self._all_d(center,loc)
 
 		### let's change things so that low support gives us the corners
-		corner = lambda x,d: x <= edges[d][0] or x >= edges[d][-1]
-		low_support = lambda loc: False#self._all_d(corner,loc)
-		# if self.node:
-		# 	low_support = lambda loc: False
-		# else:
-		# 	low_support = lambda loc: self._all_d(far_out,loc)
+		corner_x = lambda x,d: x <= edges[d][0] or x >= edges[d][-1]
+		corner = lambda loc: self._all_d(corner_x,loc)
 
-		return check, echeck, quad, low_support
+		cell_centers = [.25+H/2,.75-H/2]
+		def corner_support_x(x,d):
+			Ledge = x-(1+self.supports_L[d])*H
+			Redge = x+(1+self.supports_R[d])*H
+			# print(Ledge,Redge)
+			for center in cell_centers:
+				if Ledge < center < Redge:
+					return True
+			return False
+
+		def corner_support(loc):
+			if corner(loc): return False
+			return self._all_d(corner_support_x,loc)
+
+		return check, echeck, quad, corner, corner_support
 
 	def outside_checks(self,H,edges,domain,loose_center,far_in):
 		minicheck = lambda x,d: edges[d][1] >= x or edges[d][2]<=x
@@ -479,13 +492,17 @@ class SquareRefinement(RefinementPattern):
 		echeck = lambda loc: self._not_all_d(einside,loc) and self._all_d(eoutside,loc)
 		quad =	lambda loc:	self._all_d(domain,loc) and self._not_all_d(loose_center,loc)
 
-		low_support = lambda loc: False
-		# if self.node:
-		# 	low_support = lambda loc: False
-		# else:
-		# 	low_support = lambda loc: self._all_d(far_in,loc)
+		cell_centers = [.25-H/2,.75+H/2]
+		def corner_support_x(x,d):
+			Ledge = x-(1+self.supports_L[d])*H
+			Redge = x+(1+self.supports_R[d])*H
+			for center in cell_centers:
+				if Ledge < center < Redge:
+					return True
+			return False
+		corner_support = lambda loc: self._all_d(corner_support_x,loc)
 
-		return check, echeck, quad, low_support
+		return check, echeck, quad, corner_support
 
 	def _setup_coarse_info(self):
 		H = self.h
@@ -495,11 +512,12 @@ class SquareRefinement(RefinementPattern):
 		periodic, dirichlet, block, slice = funcs[-4:]
 
 		if self.rtype == 1: # coarse center
-			check, echeck, quad, low_support = self.center_checks(
+			check, echeck, quad, corner, corner_support = self.center_checks(
 						H,edges,center,far_out)
 		else: # coarse edges
-			check, echeck, quad, low_support = self.outside_checks(
+			check, echeck, quad, corner_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
+			corner = lambda loc: False
 
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
@@ -508,7 +526,7 @@ class SquareRefinement(RefinementPattern):
 		ghost = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  corner, corner_support, quad, interface, ghost]
 		return doms, checks
 
 
@@ -520,25 +538,23 @@ class SquareRefinement(RefinementPattern):
 		periodic, dirichlet, block, slice = funcs[-4:]
 
 		if self.rtype == 0: # fine center
-			check, echeck, quad, low_support = self.center_checks(
+			check, echeck, quad, corner,corner_support = self.center_checks(
 						H,edges,center,far_out)
-			# ghost_x_a =	lambda x,d: i_edges[d][2]+H*self.shifts_L[d] <= x <= .75
-			# ghost_x_b =	lambda x,d: .25 <= x <= i_edges[d][1]-H*self.shifts_R[d]
-			# ghost_x = lambda x,d: ghost_x_a(x,d) or ghost_x_b(x,d)
 			in_i_edge_a = lambda x,d: i_edges[d][0]<=x<=i_edges[d][1]
 			in_i_edge_b = lambda x,d: i_edges[d][2]<=x<=i_edges[d][3]
 			in_i_edge = lambda x,d: in_i_edge_a(x,d) or in_i_edge_b(x,d)
 			ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
 		else: # fine edges
-			check, echeck, quad, low_support = self.outside_checks(
+			check, echeck, quad, corner_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
 			ghost_x =	lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
 			ghost	= lambda loc: self._all_d(ghost_x,loc)
+			corner = lambda loc: False
 
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
 		interface	= lambda loc: check1(loc) or check2(loc)
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  corner, corner_support, quad, interface, ghost]
 		return doms, checks

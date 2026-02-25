@@ -29,6 +29,7 @@ class Patch:
 		self.alt_el = {}
 		self.level = level
 		self.corners = []
+		self.corner_support = []
 
 		self._setup()
 
@@ -87,7 +88,8 @@ class Patch:
 		d_info,e_info,i_info = self.info
 
 		for id in range(len(d_info[0])):
-			ind,loc,per,bc,low = d_info[0][id],d_info[1][id],d_info[2][id],d_info[3][id],d_info[4][id]
+			# ind,loc,per,bc,crn,crn_supp = d_info[0][id],d_info[1][id],d_info[2][id],d_info[3][id],d_info[4][id]
+			ind,loc,per,bc,crn,crn_supp = [d_info[j][id] for j in range(6)]
 			newdof = DoF(id,self.dim,ind,loc,self.h,self.ords)
 			lookup_id = self._get_lookup_id_from_ind(ind)
 			self.dofs[lookup_id] = newdof
@@ -97,8 +99,10 @@ class Patch:
 				self.periodic_pairs[lookup_id] = pair_lookup_id
 			if bc:
 				self.dirichlet_dofs.append(lookup_id)
-			if low:
+			if crn:
 				self.corners.append(lookup_id)
+			if crn_supp:
+				self.corner_support.append(lookup_id)
 			
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
@@ -139,11 +143,6 @@ class Patch:
 		for i,loc in enumerate(eval_points):
 			for j,dof_id in enumerate(self.interface_dofs):
 				dof = self.dofs[dof_id]
-				diff = (loc[0]-dof.x)/self.h
-				#if diff < -1 or diff > 2:
-				#	tmp = dof.phi(loc)
-				#	if tmp != 0:
-				#		print(tmp)
 				evals[i,j] = dof.phi(loc)
 		return evals
 
@@ -158,9 +157,6 @@ class Patch:
 				dof = self.dofs[dof_id]
 				val = dof.phi(loc)
 				ghost_arr[i,j] = val
-		# plt.matshow(ghost_arr)
-		# plt.show()
-		# print(np.linalg.eig(ghost_arr)[0],np.sum(ghost_arr,axis=0),np.sum(ghost_arr,axis=1),sep='\n')
 		return ghost_arr#np.linalg.inv(ghost_arr)
 
 	def evaluate_interface_ghosts(self):
@@ -168,13 +164,6 @@ class Patch:
 			return None
 
 		return self.check_evaluate_interface_ghosts()
-		ghosts = []
-		for loc,dof_id in zip(self.interface_points,self.interface_ghosts):
-			dof = self.dofs[dof_id]
-			val = dof.phi(loc)
-			assert abs(val)>1e-12
-			ghosts.append(val)
-		return ghosts
 
 	def vis(self):
 		fig = plt.figure(figsize=(10,10))

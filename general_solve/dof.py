@@ -1,4 +1,5 @@
 from general_solve.shape_functions import phi_2d_eval, phi_3d_eval
+from general_solve.shape_functions import dphi_2d_eval, dphi_3d_eval
 
 class DoF:
 	def __init__(self,ID,dim,inds,loc,h,ords):#=[3,3]):
@@ -12,10 +13,12 @@ class DoF:
 			self.x,self.y = loc
 			self.k,self.z = None, None
 			self.phi = lambda xy: phi_2d_eval(self.ords,xy[0],xy[1],h,self.x,self.y)
+			self.dphi = lambda xy: dphi_2d_eval(self.ords,xy[0],xy[1],h,self.x,self.y)
 		elif dim == 3:
 			self.i,self.j,self.k = inds
 			self.x,self.y,self.z = loc
 			self.phi = lambda xyz: phi_3d_eval(self.ords,xyz[0],xyz[1],xyz[2],h,self.x,self.y,self.z)
+			self.dphi = lambda xyz: dphi_3d_eval(self.ords,xyz[0],xyz[1],xyz[2],h,self.x,self.y,self.z)
 		else:
 			raise ValueError('dim must be 2 or 3')
 

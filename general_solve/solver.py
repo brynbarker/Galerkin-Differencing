@@ -8,7 +8,9 @@ from general_solve.simple_solve import LaplaceOperator,ProjectionOperator
 from general_solve.constraints import ConstraintOperator
 
 class Solver:
-	def __init__(self,N,dim,dofloc,rtype,rname=None,u=None,ords=[3,3],qpn=5,dirichlet=False):
+	def __init__(self,N,dim,dofloc,rtype,
+			  	 rname=None,u=None,ords=[3,3],
+				 qpn=5,dirichlet=False):
 		self.N = N
 		self.dim = dim
 		self.ufunc = u

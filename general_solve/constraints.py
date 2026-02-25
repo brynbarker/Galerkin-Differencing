@@ -25,6 +25,8 @@ class ConstraintOperator:
 		self.Cd = []
 
 		self._set_patches(dirichlet)
+		# self._locate_corners(cornord)
+		self._setup_corners()
 		self._setup_interface()
 		self._setup_boundary(dirichlet)
 		self._construct_matrix()
@@ -126,13 +128,32 @@ class ConstraintOperator:
 		self.dirichlet_Id_update = True
 		return
 	
-	def _locate_corners(self):
+	def _locate_corners(self,cornord=None):
+
+		return
 		if self.size == self.dof_id_shift:
 			return # uniform grid
 
+		if cornord is None:
+			self.corners = {}
+			self.corner_deps = []
+			return
+		if isinstance(cornord,int):
+			c_ords = [cornord for _ in range(self.mesh.dim)]
+		else:
+			c_ords = cornord
+
 		# this is for order 3 and 2
-		extraps = {3:[4,-6,4,-1], 2:[3,-3,1]}
-		extraps = [2,-1]
+		# linear extrap [2,-1]
+		# quadratic extrap [3,-3,1]
+		# cubic extrap [4,-6,4,-1]
+		extraps = {0:[1],
+			 	   1:[2,-1],
+				   2:[3,-3,1],
+				   3:[4,-6,4,-1]}
+
+		myextraps = [extraps[c_ord] for c_ord in c_ords]
+		# print(c_ords,myextraps,sep='\n')
 
 		def corner_sides(x,y):
 			xlo = x < .25
@@ -142,7 +163,6 @@ class ConstraintOperator:
 			yhi = y > .75
 
 			if not ((xlo or xhi) and (ylo or yhi)):
-				print('false alarm')
 				return False,None
 
 			return True, [xhi,yhi] # 0 if low and 1 if hi
@@ -163,14 +183,12 @@ class ConstraintOperator:
 					extrap_inds = {0:[],1:[]}
 					for dim,(start,side) in enumerate(zip(start_inds,sides)):
 						sgn = -1 if side else 1
-						for step in range(2):#p.ords[dim]+1):
+						for step in range(c_ords[dim]+1):
 							extrap_inds[dim].append(int(start+sgn*(step+1)))
 					
 					dof_list, weight_list = [],[]
-					# for x_weight,j in zip(extraps[p.ords[0]],extrap_inds[0]):
-					for x_weight,j in zip(extraps,extrap_inds[0]):
-						# for y_weight,i in zip(extraps[p.ords[1]],extrap_inds[1]):
-						for y_weight,i in zip(extraps,extrap_inds[1]):
+					for x_weight,j in zip(myextraps[0],extrap_inds[0]):
+						for y_weight,i in zip(myextraps[1],extrap_inds[1]):
 							weight = x_weight*y_weight
 							dof_lookup_id = p._get_lookup_id_from_ind([i,j])
 							dof_local_id = p.dofs[dof_lookup_id].ID
@@ -184,12 +202,101 @@ class ConstraintOperator:
 					corner_deps += dof_list
 
 		self.corner_deps = list(set(corner_deps))
+		# print(self.corners)
+
+
+	def _setup_corners(self):
+		self.corners = {}
+
+		disp = True
+		corner_locs = [(.25,.25), (.75,.25), (.25,.75), (.75,.75)]
+		corner_dirs = [(1,1),(-1,1),(1,-1),(-1,-1)]
+
+		def corner_sides(x,y,cushion=[0,0]):
+			[xeps,yeps] = cushion
+			# xeps = ords[0]*self.h if cushion else 0
+			xlo = x < .25+xeps
+			xhi = x > .75-xeps
+
+			# yeps = self.ords[1]*self.h if cushion else 0
+			ylo = y < .25+yeps
+			yhi = y > .75-yeps
+
+			if not ((xlo or xhi) and (ylo or yhi)):
+				return False,None
+
+			# 0 = (.25,.25), 1 = (.75,.25), 2 = (.25,.75), 3 = (.75,.75)
+			return True, xhi+2*yhi 
+
+
+		set_count = 0
+		corner_dofs = {}
+		for p_id,p in enumerate(self.patches):
+			corner_dofs = [p.dofs[lookup] for lookup in p.corners]
+			if len(corner_dofs) > 0:
+				corner_p_id = p_id
+				set_count += 1
+
+			for corner_dof in corner_dofs:
+				check, corner_id = corner_sides(corner_dof.x,corner_dof.y)
+				if check:
+					self.corners[corner_id] = {0:[],1:[]}
+					global_corner_id = self._global_dof_id(corner_dof.ID,p_id)
+					corner_dofs[corner_id] = (global_corner_id,corner_dof)
+					self.corners[corner_id] = {}
+					plt.plot(corner_dof.x,corner_dof.y,'*',ms=5,color='C2')
+		
+		assert set_count <= 1
+
+		self.corner_deps = []
+		self.corner_dofs = {}
+		if len(self.corners) > 0:
+			assert corner_p_id != self.bpatch[0]
+			def directional_derivative(dof,curr_p_id,corner_id):
+				cloc = np.array(corner_locs[corner_id])
+				dir = np.array(corner_dirs[corner_id])
+				eps = 1e-12 if curr_p_id==corner_p_id else -1e-12
+				loc = cloc + eps*dir
+
+				grad_phi = dof.dphi(loc)
+				return grad_phi @ dir
+
+			patch_order = [self.bpatch[0],1-self.bpatch[0]]
+
+			for i,p_id in enumerate(patch_order):#,p in enumerate(self.patches):
+				ms = 5 if i else 8
+				p = self.patches[p_id]
+				color = 'C0' if p_id==corner_p_id else 'C1'
+				for corn_id in self.corners:
+					self.corners[corn_id][p_id] = {'ids':[],'ws':[]}
+				support_dofs = [p.dofs[lookup] for lookup in p.corner_support]
+				for support_dof in support_dofs:
+					check, corner_id = corner_sides(
+								support_dof.x,support_dof.y,
+								cushion=[ord*p.h for ord in p.ords])
+					if check and corner_id in self.corners:
+						dir_der = directional_derivative(support_dof,p_id,corner_id)
+						global_support_id = self._global_dof_id(support_dof.ID,p_id)
+						self.corner_deps.append(global_support_id)
+						self.corners[corner_id][p_id]['ids'].append(global_support_id)
+						self.corners[corner_id][p_id]['ws'].append(dir_der)
+						plt.plot(support_dof.x,support_dof.y,'o',ms=ms,color=color)
+
+			for corner_id in self.corners:
+				global_dof_id, dof = corner_dofs[corner_id]
+				dir_der = directional_derivative(dof,corner_p_id,corner_id)
+				self.corner_dofs[corner_id] = (global_dof_id,dir_der)
+				locx,locy = corner_locs[corner_id]
+				plt.plot(locx,locy,'o',ms=15,markeredgewidth=2,color='k',fillstyle='none')
+			plt.show()
+
 
 
 
 	def _setup_interface(self):
+		checklist = [336,354,678,696]
 
-		self._locate_corners()
+		# self._locate_corners()
 
 		if self.gpatch is None:
 			return
@@ -204,8 +311,8 @@ class ConstraintOperator:
 			return to_return
 
 		corner_mods = {}
+		self.all_corner_mods = []
 
-		# ghost_vals = self.patches[self.gpatch].evaluate_interface_ghosts()
 		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
 		ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
 
@@ -235,30 +342,42 @@ class ConstraintOperator:
 					self.Cc += local_dofs
 					self.Cd += list(sgn*local_vals)
 
+					checklist_check = [cl in self.Cc for cl in checklist]
+					if sum(checklist_check)>0:
+						print(checklist_check)
+
 					if g_dof_id in self.corner_deps:
 						corner_mods[g_dof_id] = (local_dofs,sgn*local_vals)
+						self.all_corner_mods += local_dofs
+		self.corner_mods = corner_mods
 
 		# now let's try setting the corners
-		for corner_id in self.corners:
+		for corner_index in self.corners:
+			(corner_id,corner_val) = self.corner_dofs[corner_index]
 			if corner_id in self.ghost_list:
-				print('false alarm')
 				pass
 			else:
 				self.Id[corner_id] = 1
-				dof_list,weight_list = self.corners[corner_id]
-				for dof_id,weight in zip(dof_list,weight_list):
+				for p_id in range(2):
+					sgn = 1. if p_id==self.bpatch else -1.
+					dof_list = self.corners[corner_index][p_id]['ids']
+					weight_list = self.corners[corner_index][p_id]['ws']
+					for dof_id,weight in zip(dof_list,weight_list):
 
-					if dof_id in corner_mods:
-						# this is a little messy
-						mod_dofs,mod_vals = corner_mods[dof_id]
-						for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
+						if dof_id in corner_mods:
+							# this is a little messy
+							mod_dofs,mod_vals = corner_mods[dof_id]
+							for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
+								self.Cr.append(corner_id)
+								self.Cc.append(mod_dof_id)
+								self.Cd.append(mod_val*weight*sgn/corner_val)
+						else:
 							self.Cr.append(corner_id)
-							self.Cc.append(mod_dof_id)
-							self.Cd.append(mod_val*weight)
-					else:
-						self.Cr.append(corner_id)
-						self.Cc.append(dof_id)
-						self.Cd.append(weight)
+							self.Cc.append(dof_id)
+							self.Cd.append(weight*sgn/corner_val)
+					checklist_check = [cl in self.Cc for cl in checklist]
+					if sum(checklist_check)>0:
+						print(checklist_check)
 
 	def _construct_matrix(self):
 		self.true_dofs = list(np.where(self.Id==0)[0])
@@ -287,9 +406,12 @@ class ConstraintOperator:
 
 		num_true = len(self.true_dofs)
 		self.tocheck = [Cc]
-		# return
-		self.spC = sparse.coo_array((self.Cd,(self.Cr,Cc)),shape=(self.size,num_true)).tocsc()
+		try:
+			self.spC = sparse.coo_array((self.Cd,(self.Cr,Cc)),shape=(self.size,num_true)).tocsc()
+		except:
+			print('something wrong w Cc')
 
+		# print('C shape ({},{})'.format(self.size,num_true))
 		# sums = self.spC.sum(axis=1)
 
 	def vis_boundary(self):
