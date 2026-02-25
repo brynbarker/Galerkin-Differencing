@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import sparse
+from scipy import linalg as scla
 import scipy.sparse.linalg as sla
 from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
@@ -25,20 +26,17 @@ class Solver:
 		self.constraints = ConstraintOperator(self.mesh,dirichlet=dirichlet)
 
 		self.dirichlet = dirichlet
-		self._build_zero_mean()
 
 		self.U_true = None
 		self.u_vals = None
-	
-	def _build_zero_mean(self):
-		if self.dirichlet:
-			self.constraints._setup_dirichlet(self.ufunc)
-			return
+		
+		self._setup_mean_value()
 
+	def _setup_mean_value(self):
 		myZs = []
 		for patch in self.mesh.patches:
 			num_dofs = len(patch.dofs)
-			Z = np.zeros(num_dofs)
+			myZ = np.zeros((num_dofs,1))
 
 			for e in patch.elements.values():
 				vol = (e.h)**self.dim
@@ -47,10 +45,10 @@ class Solver:
 					for (quad,phi_val) in zip(e.quads,phi_vals):
 						if quad:
 							val = self.integrator._compute_product_integral(phi_val,volume=vol)
-							Z[dof.ID] += val
-			myZs.append(Z)
+							myZ[dof.ID,0] += val
+			myZs.append(myZ)
 
-		self.Z = np.hstack(myZs)
+		self.Z = np.vstack(myZs)
 
 	def sol(self, interpolants=None):
 
@@ -125,24 +123,32 @@ class Solver:
 		C = self.constraints.spC
 		lhs = C.T @ op.spA @ C
 
+		size = lhs.shape[0]
+		Z = np.ones((size,1))
+		self.one_vec = Z
+
+		rhs = C.T.dot(op.F)
+		solver = sla.cg
+
 		if self.dirichlet:
-			rhs = C.T.dot(op.F-op.spA.dot(self.constraints.dirichlet))
-			solver = sla.cg
-		else:
-			cTg = C.T.dot(self.Z)
-			cTF = C.T.dot(op.F)
-			cTF_proj = (cTF @ cTg)/(cTg @ cTg) * cTg
-			rhs = cTF - cTF_proj
-			solver = sla.gmres
+			rhs -= C.T @ op.spA.dot(self.constraints.dirichlet)
+			alpha = 0
 
 		try:
-			x,conv = solver(lhs,rhs,rtol=1e-13)
+			x_star,conv = solver(lhs,rhs,rtol=1e-13)
 			assert conv == 0
 		except:
-			x = np.linalg.solve(lhs.todense(),rhs)
+			x_star = np.linalg.solve(lhs.todense(),rhs)
 			print('Krylov Solver did not converge, check self.totest')
 			self.totest = [lhs,rhs]
 
+		if self.dirichlet == False:
+			zTcx_star = self.Z.T @ C.dot(x_star)
+			alpha = zTcx_star[0] / sum(self.Z)
+
+		x = x_star - alpha
+		self.C = C.todense()
+		self.CTKC = lhs.todense()
 
 		U = C.dot(x)
 		if self.dirichlet:
