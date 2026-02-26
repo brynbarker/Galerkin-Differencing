@@ -130,9 +130,14 @@ class Solver:
 		rhs = C.T.dot(op.F)
 		solver = sla.cg
 
+		f_proj = sum(rhs)/size
+		if abs(f_proj) > 1e-12:
+			rhs -= f_proj
+
 		if self.dirichlet:
 			rhs -= C.T @ op.spA.dot(self.constraints.dirichlet)
 			alpha = 0
+
 
 		try:
 			x_star,conv = solver(lhs,rhs,rtol=1e-13)
