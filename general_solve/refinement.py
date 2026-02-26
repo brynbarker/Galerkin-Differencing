@@ -60,55 +60,6 @@ class RefinementPattern:
 	def	_closest_point(self,loc,H=None):
 		# must be overwritten
 		return None
-		if H is None:
-			H = self.h
-		# find point going inward
-		if False:#self.rtype == 1:
-			shifts,dirs	= [],[]
-			for	x in loc:
-				if x < .25 or x	> .75:
-					ops	= [abs(.25-x),abs(.75-x)]
-					minloc = np.argmin(ops)
-					sgn	= 1	if minloc==0 else -1
-
-					shifts.append(ops[minloc])
-					dirs.append(sgn)
-				else:
-					shifts.append(0)
-					dirs.append(1)
-
-			if 0 in	shifts or shifts[0]/shifts[1]==1:
-				pass
-			else:
-				short_ind =	np.argmin(shifts)
-				shifts[short_ind] =	shifts[short_ind]*3/2
-
-			nearest_point =	[]
-			for	x,shft,dir in zip(loc,shifts,dirs):
-				nearest_point.append(x+shft*dir)
-			return nearest_point
-
-		# find point going out
-		side_vals =	[.25,.75]
-		ops	= [(abs(.25-x),abs(.75-x)) for x in	loc]
-		sides =	[np.argmin(op) for op in ops]
-		vals = [min(op)	for	op in ops]
-
-		mindist	= min(vals)
-		axes = [i for i	in range(self.dim) if vals[i]==mindist]
-		nearest_point =	loc.copy()
-		for	ax in axes:
-			cont = True
-			if self.ords[ax] %2 == 0:
-				cont = False
-				shift = (side_vals[sides[ax]] - loc[ax])/H
-				if shift < 0 and abs(shift) < 1+self.supports_L[ax]:
-					cont = True
-				if shift > 0 and shift < 1+self.supports_R[ax]:
-					cont = True
-			if cont:
-				nearest_point[ax] =	side_vals[sides[ax]]
-		return nearest_point
 
 	def _all_d(self,func,loc):
 		try:
@@ -365,7 +316,6 @@ class StripeRefinement(RefinementPattern):
 		edges, i_edges = edge_dicts
 		center,loose_center, domain, far_in, far_out = funcs[:5]
 		periodic, dirichlet, block, slice = funcs[-4:]
-
 
 		if self.rtype % 2: # coarse stripe
 			check, echeck, quad = self.stripe_checks(H,edges,domain,center)
