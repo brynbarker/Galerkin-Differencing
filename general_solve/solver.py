@@ -5,7 +5,7 @@ from scipy import linalg as scla
 import scipy.sparse.linalg as sla
 from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
-from general_solve.simple_solve import LaplaceOperator,ProjectionOperator
+from general_solve.simple_solve import SimpleSolver,LaplaceOperator,ProjectionOperator
 from general_solve.constraints import ConstraintOperator
 
 class Solver:
@@ -25,6 +25,8 @@ class Solver:
 		self.mass = ProjectionOperator(self.mesh,self.integrator)
 		self.constraints = ConstraintOperator(self.mesh,dirichlet=dirichlet)
 
+		self.k = None
+		self.helm = None
 		self.dirichlet = dirichlet
 
 		self.U_true = None
@@ -115,17 +117,27 @@ class Solver:
 
 		return np.linalg.norm(Utmp)
 
+	def solve_helmholtz(self,f,k=1,disp=True):
+		self.helm = SimpleSolver(self.mesh,self.integrator)
+		self.k = k
 
-	def solve_simple(self,f,op,disp=True):
+		self.solve_simple(f,self.helm,disp,True)
+
+
+	def solve_simple(self,f,op,disp=True,helm=False):
 		op._build_force(f)
-		op._build_system()
+
+		if helm:
+			self.mass._build_system()
+			self.lap._build_system()
+			spA = -1/self.lap.mu*self.lap.spA + self.k**2*self.mass.spA
+		else:
+			op._build_system()
+			spA = op.spA
 
 		C = self.constraints.spC
-		lhs = C.T @ op.spA @ C
-
+		lhs = C.T @ spA @ C
 		size = lhs.shape[0]
-		Z = np.ones((size,1))
-		self.one_vec = Z
 
 		rhs = C.T.dot(op.F)
 		solver = sla.cg
@@ -135,9 +147,8 @@ class Solver:
 			rhs -= f_proj
 
 		if self.dirichlet:
-			rhs -= C.T @ op.spA.dot(self.constraints.dirichlet)
+			rhs -= C.T @ spA.dot(self.constraints.dirichlet)
 			alpha = 0
-
 
 		try:
 			x_star,conv = solver(lhs,rhs,rtol=1e-13)
@@ -152,8 +163,8 @@ class Solver:
 			alpha = zTcx_star[0] / sum(self.Z)
 
 		x = x_star - alpha
-		self.C = C.todense()
-		self.CTKC = lhs.todense()
+		# self.C = C.todense()
+		# self.CTAC = lhs.todense()
 
 		U = C.dot(x)
 		if self.dirichlet:
@@ -171,11 +182,7 @@ class Solver:
 			print('L2 error     = {}'.format(err))
 			print('Linf error   = {}'.format(Linf_err))
 
-	def solve_poisson(self,f=None,disp=True):
-		if self.ffunc is None:
-			assert f is not None
-		if f is None:
-			f = self.ffunc
+	def solve_poisson(self,f,disp=True):
 		self.solve_simple(f,self.lap,disp)
 
 	def solve_projection(self,disp=True):

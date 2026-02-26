@@ -56,17 +56,22 @@ class SimpleSolver:
 		self.mesh = mesh
 		self.integrator = integrator
 		self.dim = mesh.dim
-		# self.ords = mesh.ords
 
 		self.lookup = None # needs to be overwritten
 		self.blocks = []
 
+		self.spA = None
 		self.U = None
+		self.F = None
 		self.err = None
 
 	def _get_blocks(self):
 		if len(self.blocks) == self.dim:
 			return 
+
+		if self.lookup is None:
+			print('operator quantities not specified')
+			return
 
 		self.As = []
 
@@ -85,6 +90,9 @@ class SimpleSolver:
 			self.As.append(spA)
 
 	def _build_system(self,scale0=1,scale1=1):
+		if self.spA is not None:
+			return 
+
 		self._get_blocks()
 
 		self.spA = sparse.bmat(np.array(
@@ -92,6 +100,9 @@ class SimpleSolver:
 			 [None,self.As[1]*scale1]]),format='csc')
 
 	def _build_force(self,ffunc):
+		if self.F is not None:
+			return 
+
 		myFs = []
 
 		for patch in self.mesh.patches:
@@ -151,4 +162,23 @@ class ProjectionOperator(SimpleSolver):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
 class Helmholtz(SimpleSolver):
-	pass
+	def __init__(self,mesh,integrator,k=1):
+		super().__init__(mesh,integrator)
+		self.k = k
+		scales = [p.h**self.mesh.dim for p in self.mesh.patches]
+		self.scale0 = scales[0]
+		self.scale1 = scales[1]
+
+		lookup_m = integrator.get_m_vals()
+		lookup_k = integrator.get_k_vals()
+
+	def _build_system(self):
+		super()._build_system(scale0=self.scale0,scale1=self.scale1)
+
+
+	def _build_system(self):
+		super()._build_system(scale0=self.mu,scale1=self.mu)
+
+	def _build_force(self, ffunc):
+		super()._build_force(ffunc)
+		self.F *= -1
