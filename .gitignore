@@ -183,4 +183,5 @@ cython_debug/
 *.pickle
 *.pkl
 *.swp
+scratch*
 *scratch*

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import sparse
+from scipy import linalg as scla
 import scipy.sparse.linalg as sla
 from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
@@ -25,20 +26,17 @@ class Solver:
 		self.constraints = ConstraintOperator(self.mesh,dirichlet=dirichlet)
 
 		self.dirichlet = dirichlet
-		self._build_zero_mean()
 
 		self.U_true = None
 		self.u_vals = None
-	
-	def _build_zero_mean(self):
-		if self.dirichlet:
-			self.constraints._setup_dirichlet(self.ufunc)
-			return
+		
+		self._setup_mean_value()
 
-		myGs = []
+	def _setup_mean_value(self):
+		myZs = []
 		for patch in self.mesh.patches:
 			num_dofs = len(patch.dofs)
-			G = np.zeros(num_dofs)
+			myZ = np.zeros((num_dofs,1))
 
 			for e in patch.elements.values():
 				vol = (e.h)**self.dim
@@ -47,14 +45,10 @@ class Solver:
 					for (quad,phi_val) in zip(e.quads,phi_vals):
 						if quad:
 							val = self.integrator._compute_product_integral(phi_val,volume=vol)
-							G[dof.ID] += val
-			myGs.append(G)
+							myZ[dof.ID,0] += val
+			myZs.append(myZ)
 
-		Gd = list(np.hstack(myGs))
-		size = len(Gd)
-		Gr = list(np.arange(size))
-		Gc = [0]*size
-		self.spG = sparse.coo_array((Gd,(Gr,Gc)),shape=(size,1)).tocsc()
+		self.Z = np.vstack(myZs)
 
 	def sol(self, interpolants=None):
 
@@ -127,48 +121,38 @@ class Solver:
 		op._build_system()
 
 		C = self.constraints.spC
-		if self.dirichlet:
-			lhs = C.T @ op.spB @ C
-			rhs = C.T.dot(op.F-op.spB.dot(self.constraints.dirichlet))
-			solver = sla.cg
-		else:
-			sparse1 = sparse.coo_array(
-				([1],([0],[0])),shape=(1,1)).tocsc()
-			full_sys = sparse.bmat(np.array(
-				[[op.spB,self.spG],
-				 [self.spG.T,None]]),format='csc')
-			padded_C = sparse.bmat(np.array(
-				[[C,None],
-				 [None,sparse1]]),format='csc')
-			lhs = padded_C.T @ full_sys @ padded_C
-			padded_F = np.hstack((op.F,np.array([0.])))
-			rhs = padded_C.T.dot(padded_F)
-			solver = sla.gmres
+		lhs = C.T @ op.spA @ C
 
-		x = np.linalg.solve(lhs.todense(),rhs)
-		# try:
-		# 	# x = np.linalg.solve(lhs.todense(),rhs)
-		# 	if self.dirichlet:
-		# 		x,conv = solver(lhs,rhs,rtol=1e-13)
-		# 		assert conv == 0
-		# 	else:
-		# 		x = np.linalg.solve(lhs.todense(),rhs)
-		# except:
-		# 	try:
-		# 		x = np.linalg.solve(lhs.todense(),rhs)
-		# 	except:
-		# 		print('Solver did not converge, check self.totest')
-		# 		self.totest = [lhs,rhs]
-		# 		return
+		size = lhs.shape[0]
+		Z = np.ones((size,1))
+		self.one_vec = Z
 
+		rhs = C.T.dot(op.F)
+		solver = sla.cg
 
 		if self.dirichlet:
-			U = C.dot(x) + self.constraints.dirichlet
-		else:
-			tmp = padded_C.dot(x)
-			if disp:
-				print('lambda = {}'.format(tmp[-1]))
-			U = tmp[:-1]
+			rhs -= C.T @ op.spA.dot(self.constraints.dirichlet)
+			alpha = 0
+
+		try:
+			x_star,conv = solver(lhs,rhs,rtol=1e-13)
+			assert conv == 0
+		except:
+			x_star = np.linalg.solve(lhs.todense(),rhs)
+			print('Krylov Solver did not converge, check self.totest')
+			self.totest = [lhs,rhs]
+
+		if self.dirichlet == False:
+			zTcx_star = self.Z.T @ C.dot(x_star)
+			alpha = zTcx_star[0] / sum(self.Z)
+
+		x = x_star - alpha
+		self.C = C.todense()
+		self.CTKC = lhs.todense()
+
+		U = C.dot(x)
+		if self.dirichlet:
+			U += self.constraints.dirichlet
 
 		op.set_U(U)
 		err = self.error(U)
@@ -176,7 +160,7 @@ class Solver:
 		op.set_error(err)
 		op.set_error(Linf_err,Linf=True)
 
-		self.solve_system = [lhs,rhs,padded_C,U]
+		self.solve_system = [lhs,rhs,C,U]
 
 		if disp:
 			print('L2 error     = {}'.format(err))

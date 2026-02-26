@@ -68,28 +68,28 @@ class SimpleSolver:
 		if len(self.blocks) == self.dim:
 			return 
 
-		self.Bs = []
+		self.As = []
 
 		for patch in self.mesh.patches:
-			n = len(patch.dofs)
-			Br, Bc, Bd = [],[],[]
+			size = len(patch.dofs)
+			Ar, Ac, Ad = [],[],[]
 
 			for e in patch.elements.values():
 				for test_id,dof in enumerate(e.dof_list):
 					for id,quad in enumerate(e.quads):
 						if quad:
-							Br += [dof.ID]*len(e.dof_ids)
-							Bc += e.dof_ids
-							Bd += list(self.lookup[id][test_id])
-			spB = sparse.coo_array((Bd,(Br,Bc)),shape=(n,n))
-			self.Bs.append(spB)
+							Ar += [dof.ID]*len(e.dof_ids)
+							Ac += e.dof_ids
+							Ad += list(self.lookup[id][test_id])
+			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,size))
+			self.As.append(spA)
 
 	def _build_system(self,scale0=1,scale1=1):
 		self._get_blocks()
 
-		self.spB = sparse.bmat(np.array(
-			[[self.Bs[0]*scale0,None],
-			 [None,self.Bs[1]*scale1]]),format='csc')
+		self.spA = sparse.bmat(np.array(
+			[[self.As[0]*scale0,None],
+			 [None,self.As[1]*scale1]]),format='csc')
 
 	def _build_force(self,ffunc):
 		myFs = []
@@ -120,6 +120,9 @@ class SimpleSolver:
 		else:
 			self.err = err
 
+	def set_sys_to_check(self,sys):
+		self.cTkc = sys
+
 
 class LaplaceOperator(SimpleSolver):
 	def __init__(self,mesh,integrator,mu):
@@ -127,32 +130,6 @@ class LaplaceOperator(SimpleSolver):
 		self.mu = mu
 
 		self.lookup = integrator.get_k_vals()
-
-	#def _get_blocks(self):
-	#	print('in here')
-	#	quad_bounds = [[0,.5,0,.5],
-	#			[.5,1,0,.5],[0,.5,.5,1],[.5,1,.5,1]]
-
-	#	self.Bs = []
-
-	#	for patch in self.mesh.patches:
-	#		local_ks = []
-	#		for quadbound in quad_bounds:
-	#			local_k = local_stiffness(patch.h,self.integrator.qpn,quadbound)
-	#			local_ks.append(local_k)
-	#		n = len(patch.dofs)
-	#		Br, Bc, Bd = [],[],[]
-
-	#		for e in patch.elements.values():
-	#			for test_id,dof in enumerate(e.dof_list):
-	#				for id,quad in enumerate(e.quads):
-	#					if quad:
-	#						Br += [dof.ID]*len(e.dof_ids)
-	#						Bc += e.dof_ids
-	#						Bd += list(local_ks[id][test_id])#self.lookup[id][test_id])
-	#						assert(np.linalg.norm(local_ks[id][test_id]-self.lookup[id][test_id]) < 1e-14)
-	#		spB = sparse.coo_array((Bd,(Br,Bc)),shape=(n,n))
-	#		self.Bs.append(spB)
 
 	def _build_system(self):
 		super()._build_system(scale0=self.mu,scale1=self.mu)
@@ -172,3 +149,6 @@ class ProjectionOperator(SimpleSolver):
 
 	def _build_system(self):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
+
+class Helmholtz(SimpleSolver):
+	pass
