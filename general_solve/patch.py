@@ -17,7 +17,6 @@ class Patch:
 		self.dofs = {}
 		self.elements = {}
 		self.periodic_pairs = {}
-		self.dirichlet_dofs = []
 		self.cell = dtype=='cell'
 		self.node = dtype=='node'
 		self.xside = dtype == 'xside'
@@ -31,6 +30,9 @@ class Patch:
 		self.corners = []
 
 		self._setup()
+
+		# self.vis()
+		# self.vis_interface_eval_points()
 
 	def get_dof(self,non_lookup_id):
 		lookup_id = self.alt_dof[non_lookup_id]
@@ -95,8 +97,6 @@ class Patch:
 			if per:
 				pair_lookup_id = self._get_periodic_pair(loc)
 				self.periodic_pairs[lookup_id] = pair_lookup_id
-			if bc:
-				self.dirichlet_dofs.append(lookup_id)
 			if low:
 				self.corners.append(lookup_id)
 			
@@ -188,10 +188,6 @@ class Patch:
 				count += 1
 			if lookup_id in self.interface_ghosts:
 				m = 'o'
-				filltype='none'
-				count += 1
-			if lookup_id in self.dirichlet_dofs:
-				m = 's'
 				filltype='none'
 				count += 1
 			if count > 1:

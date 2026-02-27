@@ -4,29 +4,23 @@ from scipy import sparse
 from drawarrow import ax_arrow
 
 class ConstraintOperator:
-	def __init__(self,mesh,dirichlet=False):
+	def __init__(self,mesh):
 		self.mesh = mesh
 		self.patches = mesh.patches
 		self.dof_id_shift = len(self.patches[0].dofs)
 
 		self.size = self.dof_id_shift+len(self.patches[1].dofs)
 		self.Id = np.zeros(self.size)
-		self.dirichlet_Id_update = False
 		self.bpatch = []
-		self.l_dirichlet = []
 		self.d_periodic = {}
-		if dirichlet:
-			self.dirichlet = np.zeros((self.size))
-		else:
-			self.dirichlet = None
 
 		self.Cr = []
 		self.Cc = []
 		self.Cd = []
 
-		self._set_patches(dirichlet)
+		self._set_patches()
 		self._setup_interface()
-		self._setup_boundary(dirichlet)
+		self._setup_boundary()
 		self._construct_matrix()
 
 
@@ -55,30 +49,21 @@ class ConstraintOperator:
 		local_id,p_id = self._local_dof_id(dof_id)
 		return self.patches[p_id].get_dof(local_id)
 
-	def _set_patches(self,dirichlet=False):
+	def _set_patches(self):
 
 		self.gpatch = None
 		self.ghost_list = []
 		for p_id,p in enumerate(self.patches):
 			if len(p.periodic_pairs)>0:
 				self.bpatch.append(p_id)
-				# assert len(self.patches[1-p_id].periodic_pairs) == 0
 
-				if dirichlet:
-					# self.lookup_dirichlet = p.dirichlet_dofs
-					tmp =  [p.dofs[lookup_id].ID for lookup_id in p.dirichlet_dofs]
-					global_ids = self._global_dof_id(tmp,p_id)
-					self.l_dirichlet += global_ids
-
-				else:
-					# self.d_periodic = {}
-					for key in p.periodic_pairs:
-						key_ID = p.dofs[key].ID
-						val = p.periodic_pairs[key]
-						val_ID = p.dofs[val].ID
-						global_key_ID,global_val_ID = self._global_dof_id([key_ID,val_ID],p_id)
-						self.d_periodic[global_key_ID] = global_val_ID
-						# self.d_periodic[p.dofs[key].ID] = p.dofs[val].ID
+				for key in p.periodic_pairs:
+					key_ID = p.dofs[key].ID
+					val = p.periodic_pairs[key]
+					val_ID = p.dofs[val].ID
+					global_key_ID,global_val_ID = self._global_dof_id([key_ID,val_ID],p_id)
+					self.d_periodic[global_key_ID] = global_val_ID
+					# self.d_periodic[p.dofs[key].ID] = p.dofs[val].ID
 
 			if len(p.interface_ghosts) > 0:
 				self.gpatch = p_id
@@ -90,8 +75,7 @@ class ConstraintOperator:
 		
 		return
 
-	def _setup_boundary(self,dirichlet=False):
-		if dirichlet: return self._setup_dirichlet()
+	def _setup_boundary(self):
 		# for per_dof_id in self.d_periodic:
 		for per_id in self.d_periodic:
 			if self.Id[per_id] == 0:
@@ -105,27 +89,6 @@ class ConstraintOperator:
 				self.Id[per_id] = 1
 		return
 
-	def _setup_dirichlet(self,ufunc=None):
-		if ufunc is None and self.dirichlet_Id_update == True: return
-		# for dir_dof_local_id in self.l_dirichlet:
-		for global_id in self.l_dirichlet:
-			# global_id = self._global_dof_id(dir_dof_local_id,self.bpatch)
-			local_id,bp_id = self._local_dof_id(global_id)
-			if ufunc is not None:
-				dof = self.patches[bp_id].get_dof(local_id)
-				# dof = self.patches[self.bpatch].get_dof(dir_dof_local_id)
-				# dof = self.patches[self.bpatch].dofs[dir_dof_lookup_id]
-				if dof.dim == 2:
-					uval = ufunc(dof.x,dof.y)
-				else:
-					uval = ufunc(dof.x,dof.y,dof.z)
-				self.dirichlet[global_id] = uval
-			
-			if not self.dirichlet_Id_update:
-				self.Id[global_id] = 1
-		self.dirichlet_Id_update = True
-		return
-	
 	def _locate_corners(self):
 		if self.size == self.dof_id_shift:
 			return # uniform grid
@@ -219,24 +182,23 @@ class ConstraintOperator:
 			sgn = 1. if p_id==self.nongpatch else -1.
 
 			for g_id_tmp,g_dof_id in enumerate(self.ghost_list):
-				if g_dof_id not in self.l_dirichlet: # skip if dirichlet
-					if g_dof_id in self.d_periodic:
-						g_id = self.ghost_list.index(self.d_periodic[g_dof_id])
-					else:
-						g_id = g_id_tmp
-					if p_id == 0: # just do this once
-						self.Id[g_dof_id] = 1
+				if g_dof_id in self.d_periodic:
+					g_id = self.ghost_list.index(self.d_periodic[g_dof_id])
+				else:
+					g_id = g_id_tmp
+				if p_id == 0: # just do this once
+					self.Id[g_dof_id] = 1
 
-					mask = abs(evals[g_id]) > 1e-12
-					local_dofs = list(np.array(p_interface_dof_ids)[mask])
-					local_vals = (evals[g_id])[mask]
+				mask = abs(evals[g_id]) > 1e-12
+				local_dofs = list(np.array(p_interface_dof_ids)[mask])
+				local_vals = (evals[g_id])[mask]
 
-					self.Cr += [g_dof_id]*sum(mask)
-					self.Cc += local_dofs
-					self.Cd += list(sgn*local_vals)
+				self.Cr += [g_dof_id]*sum(mask)
+				self.Cc += local_dofs
+				self.Cd += list(sgn*local_vals)
 
-					if g_dof_id in self.corner_deps:
-						corner_mods[g_dof_id] = (local_dofs,sgn*local_vals)
+				if g_dof_id in self.corner_deps:
+					corner_mods[g_dof_id] = (local_dofs,sgn*local_vals)
 
 		# now let's try setting the corners
 		for corner_id in self.corners:
@@ -293,7 +255,6 @@ class ConstraintOperator:
 		# sums = self.spC.sum(axis=1)
 
 	def vis_boundary(self):
-		periodic = self.dirichlet is None
 		color = 0
 		fig,ax = plt.subplots(1,2,figsize=(20,10))
 		for global_id,gbool in enumerate(self.Id):
@@ -307,27 +268,20 @@ class ConstraintOperator:
 					ax[gpatch].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
 
 
-					if periodic:
-						pairs = self.C_full[global_id]
-						assert len(pairs) == 1
-						c,v = pairs[0]
-						assert v == 1
-						assert c in self.true_dofs
-						c_id,cpatch = self._local_dof_id(c)
-						assert gpatch == cpatch
-						cdof = self.patches[cpatch].get_dof(c_id)
-						ax[gpatch].plot(cdof.x,cdof.y,'.',c=mycolor)
-						# ax[gpatch].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
+					pairs = self.C_full[global_id]
+					assert len(pairs) == 1
+					c,v = pairs[0]
+					assert v == 1
+					assert c in self.true_dofs
+					c_id,cpatch = self._local_dof_id(c)
+					assert gpatch == cpatch
+					cdof = self.patches[cpatch].get_dof(c_id)
+					ax[gpatch].plot(cdof.x,cdof.y,'.',c=mycolor)
+					# ax[gpatch].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
 
-						ax_arrow(tail_position=(ghost.x,ghost.y),
-							head_position=(cdof.x,cdof.y),
-							ax=ax[gpatch],color=mycolor,radius=.4)
-					else:
-						assert ghost_id in self.l_dirichlet
-						try:
-							assert gpatch in self.bpatch
-						except:
-							print(self.bpatch,gpatch)
+					ax_arrow(tail_position=(ghost.x,ghost.y),
+						head_position=(cdof.x,cdof.y),
+						ax=ax[gpatch],color=mycolor,radius=.4)
 
 		plt.show()
 	

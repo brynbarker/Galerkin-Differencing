@@ -191,7 +191,7 @@ class RefinementPattern:
 					if interface([x,y]):
 						self.i_data[L][0].append([i,j])
 						if ghost([x,y]):
-							nearest_point =	self._closest_point([x,y])
+							nearest_point =	self._closest_point([x,y],H)
 						else:
 							nearest_point =	None
 						self.i_data[L][1].append(nearest_point)
@@ -472,12 +472,9 @@ class SquareRefinement(RefinementPattern):
 		if self.rtype == 0: # fine center
 			check, echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
-			# ghost_x_a =	lambda x,d: i_edges[d][2]+H*self.shifts_L[d] <= x <= .75
-			# ghost_x_b =	lambda x,d: .25 <= x <= i_edges[d][1]-H*self.shifts_R[d]
-			# ghost_x = lambda x,d: ghost_x_a(x,d) or ghost_x_b(x,d)
-			in_i_edge_a = lambda x,d: i_edges[d][0]<=x<=i_edges[d][1]
-			in_i_edge_b = lambda x,d: i_edges[d][2]<=x<=i_edges[d][3]
-			in_i_edge = lambda x,d: in_i_edge_a(x,d) or in_i_edge_b(x,d)
+			in_i_edge_a = lambda x,d: i_edges[d][0]<=x<i_edges[d][1]
+			in_i_edge_b = lambda x,d: i_edges[d][2]<x<=i_edges[d][3]
+			in_i_edge = lambda x,d: x in i_edges[d][1:3]#in_i_edge_a(x,d) or in_i_edge_b(x,d)
 			ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
 		else: # fine edges
 			check, echeck, quad, low_support = self.outside_checks(

@@ -1,5 +1,5 @@
 import numpy as np
-from general_solve.solver import Solver
+from general_solve.variable import Solver
 
 doflocs = ['node','cell','xside','yside']
 rtypes = ['uniform','stripe','square']

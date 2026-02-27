@@ -28,7 +28,7 @@ class Integrator:
 
 		self._compute_quad_bounds()
 		self._get_phi_and_dphi_vals()
-		self._get_k_vals()
+		# self._get_k_vals()
 
 	def _compute_quad_bounds(self):
 		if self.dim ==2:
@@ -59,92 +59,81 @@ class Integrator:
 				dvals = self._evaluate_func_at_points(dphi_test,bounds,arr=True)
 				self.dphi_vals[test_id].append(dvals)
 
-	def _get_vals(self,k=True):
-		lab = 'k' if k else 'm'			
+	def _get_vals(self,k=True,test_integrator=None):
 		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled')
-		fname = fpath+'{}_vals_p{}{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
+		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
+		if test_integrator is None:
+			lab = 'k' if k else 'm'			
+			test_size = self.prod
+			square = True
+		else:
+			lab = 'div'
+			ord_string += '{}{}'.format(test_integrator.ords[0],
+							   test_integrator.ords[1])
+			test_size = test_integrator.prod
+			square = False
+			
+
+		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
+		size = self.prod
+
 		try:
 			with open(fname,'rb') as handle:
 				vals = pickle.load(handle)
 		except:
 			vals = {}
-			size = self.prod#4**self.dim
 			for id in range(len(self.quad_bounds)):
-				local = np.zeros((size,size))
-				for i in range(size):
-					for j in range(i,size):
-						if k:
+				local = np.zeros((test_size,size))
+				for i in range(test_size):
+					jstart = i if square else 0
+					for j in range(jstart,size):
+						if square and k:
 							val = self._compute_k_product_integral(i,j,id)
-						else:
+						elif square:
 							phi_i = self.phi_vals[i][id]
 							phi_j = self.phi_vals[j][id]
 							val = self._compute_product_integral(
 										phi_i,phi_j,volume=1/2**self.dim)
+						else:
+							phi_i = test_integrator.phi_vals[i][id]
+							div_phi_j = np.prod(self.dphi_vals[j][id],axis=2)
+							val = self._compute_product_integral(
+									phi_i,div_phi_j,volume=1/2**self.dim)
 						local[i,j] = val
-						local[j,i] = val
+						if square:
+							local[j,i] = val
+
 				vals[id] = local
 			with open(fname,'wb') as handle:
 				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
-		if k:
+		if k and square:
 			self.k_vals = vals
-		else:
+		elif square:
 			self.m_vals = vals
+		else:
+			self.div_vals = vals
 
-	def _get_k_vals(self):
-		return self._get_vals()
-		fname = 'k_vals_p3_qpn{}.pickle'.format(self.qpn)
-		try:
-			with open(fname,'rb') as handle:
-				self.k_vals = pickle.load(handle)
-		except:
-			self.k_vals = {}
-			size = 4**self.dim
-			for id in range(len(self.quad_bounds)):
-				k_local = np.zeros((size,size))
-				for i in range(size):
-					for j in range(i,size):
-						val = self._compute_k_product_integral(i,j,id)
-						k_local[i,j] = val
-						k_local[j,i] = val
-				self.k_vals[id] = k_local
-			with open(fname,'wb') as handle:
-				pickle.dump(self.k_vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
-			
+
 	def get_k_vals(self):
 		try:
 			return self.k_vals
 		except:
-			self._get_k_vals()
+			self._get_vals()
 			return self.k_vals
-
-	def _get_m_vals(self):
-		return self._get_vals(k=False)
-		fname = 'm_vals_p3_qpn{}.pickle'.format(self.qpn)
-		try:
-			with open(fname,'rb') as handle:
-				self.m_vals = pickle.load(handle)
-		except:
-			self.m_vals = {}
-			size = 4**self.dim
-			for id in range(len(self.quad_bounds)):
-				m_local = np.zeros((size,size))
-				for i in range(size):
-					phi_i = self.phi_vals[i][id]
-					for j in range(i,size):
-						phi_j = self.phi_vals[j][id]
-						val = self._compute_product_integral(phi_i,phi_j,volume=1/2**self.dim)
-						m_local[i,j] = val
-						m_local[j,i] = val
-				self.m_vals[id] = m_local
-			with open(fname,'wb') as handle:
-				pickle.dump(self.m_vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
 			
 	def get_m_vals(self):
 		try:
 			return self.m_vals
 		except:
-			self._get_m_vals()
+			self._get_vals(k=False)
 			return self.m_vals
+
+	def get_div_vals(self,test_integrator):
+		try:
+			return self.div_vals
+		except:
+			self._get_vals(test_integrator=test_integrator)
+			return self.div_vals
 
 	def _evaluate_func_at_points(self,func,bounds,arr=False):
 		if self.dim == 2:
@@ -206,7 +195,7 @@ class Integrator:
 				for jj in range(m):
 					for kk in range(p):
 						prod[ii,jj,kk] = vals0[ii,jj,kk] @ vals1[ii,jj,kk]
-		return self._compute_product_integral(prod, volume=1/2**self.dim)
+		return self._compute_product_integral(prod,volume=1/2**self.dim)
 
 	def _compute_product_integral(self,vals0,vals1=1,volume=1):
 		if self.dim == 2:
