@@ -103,7 +103,7 @@ class Patch:
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
 			# print(self.level,ind,loc)
-			newel = Element(id,self.dim,ind,loc,self.h,self.ords)
+			newel = Element(id,self.dim,ind,np.array(loc),self.h,self.ords)
 			newel.set_support(quads)
 			dof_lookup_id = self._get_lookup_id_from_loc(loc)
 			strt = dof_lookup_id-self.Ls[0]-self.Ls[1]*self.lens[0]#1-self.xlen

@@ -73,7 +73,7 @@ class SingleComponentVariable:
 			return val
 		return solution
 
-	def error(self,sol_vec):
+	def error(self,sol_vec,raw=False):
 		if self.true_var_vals == None:
 			tmp = [{},{}]
 			for p_id,p in enumerate(self.mesh.patches):
@@ -96,6 +96,7 @@ class SingleComponentVariable:
 							phi_vals = self.integrator.phi_vals[local_id][q_id]
 							varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
 						l2_err += self.integrator._compute_error_integral(var_vals,varh_vals,vol)
+		if raw: return l2_err
 		return np.sqrt(l2_err)
 
 	def evaluate_on_grid(self,func):
@@ -110,7 +111,7 @@ class SingleComponentVariable:
 		return np.array(tmp)
 
 
-	def Linf_error(self,sol_vec):
+	def Linf_error(self,sol_vec,raw=False):
 		if self.true_sol_vec is None:
 			tmp = []
 			for p in self.mesh.patches:
@@ -121,9 +122,12 @@ class SingleComponentVariable:
 					if self.dim == 3:
 						tmp.append(self.varfunc(dof.x,dof.y,dof.z))
 			self.true_sol_vec = np.array(tmp)
-		err_tmp = (sol_vec-self.true_sol_vec)[self.constraints.true_dofs]
+		raw_err = (sol_vec-self.true_sol_vec)[self.constraints.true_dofs]
 
-		return np.linalg.norm(err_tmp)
+		if raw:
+			return raw_err
+
+		return np.linalg.norm(raw_err)
 
 	def solve_simple_system(self,f,op,disp=True,helm=False):
 		op._build_force(f)
@@ -140,17 +144,16 @@ class SingleComponentVariable:
 
 		C = self.constraints.spC
 		lhs = C.T @ spA @ C
-		size = lhs.shape[0]
 
 		rhs = C.T.dot(op.F)
-		solver = sla.cg
 
-		f_proj = sum(rhs)/size
+		f_proj = sum(rhs)/rhs.size
 		if abs(f_proj) > 1e-12:
+			print('f in null')
 			rhs -= f_proj
 
 		try:
-			x_star,conv = solver(lhs,rhs,rtol=1e-13)
+			x_star,conv = sla.cg(lhs,rhs,rtol=1e-13)
 			assert conv == 0
 		except:
 			x_star = np.linalg.solve(lhs.todense(),rhs)

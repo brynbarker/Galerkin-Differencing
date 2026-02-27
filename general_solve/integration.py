@@ -68,8 +68,7 @@ class Integrator:
 			square = True
 		else:
 			lab = 'div'
-			ord_string += '{}{}'.format(test_integrator.ords[0],
-							   test_integrator.ords[1])
+			ord_string += test_integrator.ord_string
 			test_size = test_integrator.prod
 			square = False
 			

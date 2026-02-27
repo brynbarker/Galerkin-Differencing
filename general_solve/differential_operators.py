@@ -33,14 +33,14 @@ class DifferentialOperator:
 
 			for e in patch.elements.values():
 				test_e = self.element_map(e)
-				for test_id,dof in enumerate(test_e.dof_list):
-					for id,quad in enumerate(e.quads):
-						if quad:
+				for id,quad in enumerate(e.quads):
+					if quad:
+						for test_id,dof in enumerate(test_e.get_dof_list(id)):
 							Ar += [dof.ID]*len(e.dof_ids)
 							Ac += e.dof_ids
 							Ad += list(self.lookup[id][test_id])
 			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(test_size,size))
-			self.block.append(spA)
+			self.blocks.append(spA)
 
 	def _build_system(self,scale0=1,scale1=1):
 		if self.spA is not None:
