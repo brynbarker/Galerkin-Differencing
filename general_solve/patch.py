@@ -55,9 +55,11 @@ class Patch:
 			return k*self.lens[0]*self.lens[1]+i*self.lens[0]+j
 
 	def _get_lookup_id_from_loc(self,loc):
-		shft = 0 if self.node else 1/2
+		shftx = 0 if (self.node or self.xside) else 1/2
+		shfty = 0 if (self.node or self.yside) else 1/2
+		shft = [shftx,shfty]
 		if self.dim == 2:
-			[j,i] = [int(x/self.h+shft+self.Ls[ind]) for ind,x in enumerate(loc)]
+			[j,i] = [int(x/self.h+shft[ind]+self.Ls[ind]) for ind,x in enumerate(loc)]
 			ind = [i,j]
 		elif self.dim == 3:
 			[j,i,k] = [int(x/self.h+shft+self.Ls[ind]) for ind,x in enumerate(loc)]

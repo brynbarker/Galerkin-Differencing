@@ -4,7 +4,7 @@ import pickle
 from general_solve import shape_functions
 
 class Integrator:
-	def __init__(self,qpn,dim,ords):#=[3,3]):
+	def __init__(self,qpn,dim,ords):
 		self.qpn = qpn
 		self.dim = dim
 		self.ords = ords
@@ -43,81 +43,137 @@ class Integrator:
 	def _get_phi_and_dphi_vals(self):
 		self.phi_vals = {}
 		self.dphi_vals = {}
-		for test_id in range(self.prod):
-			test_ind = self.id_map[test_id]
+		for quad_id,bounds in enumerate(self.quad_bounds):
+			self.phi_vals[quad_id] = []
+			self.dphi_vals[quad_id] = []
 
-			phi_test = lambda x,y: self.phi(x,y,1,test_ind)
-			dphi_test = lambda x,y: self.dphi(x,y,1,test_ind)
+			for test_id in range(self.prod):
+				test_ind = self.id_map[test_id]
 
-			self.phi_vals[test_id] = []
-			self.dphi_vals[test_id] = []
+				phi_test = lambda x,y: self.phi(x,y,1,test_ind)
+				dphi_test = lambda x,y: self.dphi(x,y,1,test_ind)
 
-			for bounds in self.quad_bounds:
+
 				vals = self._evaluate_func_at_points(phi_test,bounds)
-				self.phi_vals[test_id].append(vals)
+				self.phi_vals[quad_id].append(vals)
 
 				dvals = self._evaluate_func_at_points(dphi_test,bounds,arr=True)
-				self.dphi_vals[test_id].append(dvals)
+				self.dphi_vals[quad_id].append(dvals)
 
-	def _get_vals(self,k=True,test_integrator=None):
-		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled')
+	def _get_vals(self,k=True):
+		lab = 'k' if k else 'm'
 		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
-		if test_integrator is None:
-			lab = 'k' if k else 'm'			
-			test_size = self.prod
-			square = True
-		else:
-			lab = 'div'
-			ord_string += test_integrator.ord_string
-			test_size = test_integrator.prod
-			square = False
-			
-
-		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,self.ords[0],self.ords[1],self.qpn)
-		size = self.prod
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
 
 		try:
 			with open(fname,'rb') as handle:
 				vals = pickle.load(handle)
 		except:
 			vals = {}
-			for id in range(len(self.quad_bounds)):
-				local = np.zeros((test_size,size))
-				for i in range(test_size):
-					jstart = i if square else 0
-					for j in range(jstart,size):
-						if square and k:
+			size = self.prod
+			for id in range(4):
+				local = np.zeros((size,size))
+				for i in range(size):
+					for j in range(i,size):
+						if k:
 							val = self._compute_k_product_integral(i,j,id)
-						elif square:
-							phi_i = self.phi_vals[i][id]
-							phi_j = self.phi_vals[j][id]
+						else:
+							phi_i = self.phi_vals[id][i]
+							phi_j = self.phi_vals[id][j]
 							val = self._compute_product_integral(
 										phi_i,phi_j,volume=1/2**self.dim)
-						else:
-							phi_i = test_integrator.phi_vals[i][id]
-							div_phi_j = np.prod(self.dphi_vals[j][id],axis=2)
-							val = self._compute_product_integral(
-									phi_i,div_phi_j,volume=1/2**self.dim)
 						local[i,j] = val
-						if square:
-							local[j,i] = val
+						local[j,i] = val
 
 				vals[id] = local
 			with open(fname,'wb') as handle:
 				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
-		if k and square:
+		if k:
 			self.k_vals = vals
-		elif square:
-			self.m_vals = vals
 		else:
-			self.div_vals = vals
+			self.m_vals = vals
 
+	def _get_other_div_vals(self,uv_dphi_vals,uv_size):
+		pord = self.ords[0]
+		ord_string = str(pord+1)+str(pord)+str(pord)
+
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fname = fpath+'otherdiv_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
+
+		try:
+			with open(fname,'rb') as handle:
+				vals = pickle.load(handle)
+		except:
+			quad_maps = {0:[2,1,3],1:[3,0,2],2:[0,3,1],3:[1,2,0]}
+			vals = {0:{},1:{}}
+			for quad_id in range(4):
+				u_id,v_id,p_id = quad_maps[quad_id]
+				local_pux = np.zeros((self.prod,uv_size))
+				local_pvy = np.zeros((self.prod,uv_size))
+				for i in range(self.prod):
+					for j in range(uv_size):
+						phi_i = self.phi_vals[p_id][i]
+
+						dx_phi_j = uv_dphi_vals[0][u_id][j][:,:,0]
+						pux_val = self._compute_product_integral(
+								phi_i,dx_phi_j,volume=1/2**self.dim)
+						local_pux[i,j] = pux_val
+
+						dy_phi_j = uv_dphi_vals[1][v_id][j][:,:,1]
+						pvy_val = self._compute_product_integral(
+								phi_i,dy_phi_j,volume=1/2**self.dim)
+						local_pvy[i,j] = pvy_val
+
+				vals[0][p_id] = local_pux
+				vals[1][p_id] = local_pvy
+			with open(fname,'wb') as handle:
+				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
+		self.other_div_vals = vals
+
+
+	def _get_div_vals(self,uv_dphi_vals,uv_size):
+		pord = self.ords[0]
+		ord_string = str(pord+1)+str(pord)+str(pord)
+
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fname = fpath+'div_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
+
+		try:
+			with open(fname,'rb') as handle:
+				vals = pickle.load(handle)
+		except:
+			quad_maps = {0:[2,1,3],1:[3,0,2],2:[0,3,1],3:[1,2,0]}
+			vals = {0:{},1:{}}
+			for quad_id in range(4):
+				u_id,v_id,p_id = quad_maps[quad_id]
+				local_pux = np.zeros((self.prod,uv_size))
+				local_pvy = np.zeros((self.prod,uv_size))
+				for i in range(self.prod):
+					for j in range(uv_size):
+						phi_i = self.phi_vals[p_id][i]
+
+						dx_phi_j = uv_dphi_vals[0][u_id][j][:,:,0]
+						pux_val = self._compute_product_integral(
+								phi_i,dx_phi_j,volume=1/2**self.dim)
+						local_pux[i,j] = pux_val
+
+						dy_phi_j = uv_dphi_vals[1][v_id][j][:,:,1]
+						pvy_val = self._compute_product_integral(
+								phi_i,dy_phi_j,volume=1/2**self.dim)
+						local_pvy[i,j] = pvy_val
+
+				vals[0][quad_id] = local_pux
+				vals[1][quad_id] = local_pvy
+			with open(fname,'wb') as handle:
+				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
+		self.div_vals = vals
 
 	def get_k_vals(self):
 		try:
 			return self.k_vals
 		except:
-			self._get_vals()
+			self._get_vals(k=True)
 			return self.k_vals
 			
 	def get_m_vals(self):
@@ -126,13 +182,66 @@ class Integrator:
 		except:
 			self._get_vals(k=False)
 			return self.m_vals
+	
+	def get_other_div_vals(self,uv_dphi_vals,uv_size):
+		try:
+			return self.other_div_vals
+		except:
+			self._get_other_div_vals(uv_dphi_vals,uv_size)
+			return self.other_div_vals
 
-	def get_div_vals(self,test_integrator):
+	def get_div_vals(self,uv_dphi_vals,uv_size):
 		try:
 			return self.div_vals
 		except:
-			self._get_vals(test_integrator=test_integrator)
+			self._get_div_vals(uv_dphi_vals,uv_size)
 			return self.div_vals
+
+	def _get_dx_vals(self,comp=0,test_int=None):
+		lab = 'dy' if comp else 'dx'
+		ord_string = '{}{}'.format(self.ords[0],self.ords[1])+test_int.ord_string
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+
+		try:
+			with open(fname,'rb') as handle:
+				vals = pickle.load(handle)
+		except:
+			vals = {}
+			size = self.prod
+			test_size = test_int.prod
+			for id in range(4):
+				local = np.zeros((test_size,size))
+				for i in range(test_size):
+					for j in range(size):
+						phi_i = test_int.phi_vals[id][i]
+						dphi_j = self.dphi_vals[id][j][:,:,comp]
+						val = self._compute_product_integral(
+									phi_i,dphi_j,volume=1/2**self.dim)
+						local[i,j] = val
+
+				vals[id] = local
+			with open(fname,'wb') as handle:
+				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
+		if comp:
+			self.dy_vals = vals
+		else:
+			self.dx_vals = vals
+
+	def get_dx_vals(self,test_int):
+		try:
+			return self.dx_vals
+		except:
+			self._get_dx_vals(0,test_int)
+			return self.dx_vals
+
+	def get_dy_vals(self,test_int):
+		try:
+			return self.dy_vals
+		except:
+			self._get_dx_vals(1,test_int)
+			return self.dy_vals
+
 
 	def _evaluate_func_at_points(self,func,bounds,arr=False):
 		if self.dim == 2:
@@ -179,8 +288,8 @@ class Integrator:
 		return all_vals
 
 	def _compute_k_product_integral(self,i,j,quad_id):
-		vals0 = self.dphi_vals[i][quad_id]
-		vals1 = self.dphi_vals[j][quad_id]
+		vals0 = self.dphi_vals[quad_id][i]
+		vals1 = self.dphi_vals[quad_id][j]
 		if self.dim == 2:
 			n,m,_ = vals0.shape
 			prod = np.zeros((n,m))

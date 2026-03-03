@@ -49,11 +49,11 @@ class SingleComponentVariable:
 			myZ = np.zeros((num_dofs,1))
 
 			for e in patch.elements.values():
-				vol = (e.h)**self.dim
-				for test_id,dof in enumerate(e.dof_list):
-					phi_vals = self.integrator.phi_vals[test_id]
-					for (quad,phi_val) in zip(e.quads,phi_vals):
-						if quad:
+				vol = (e.h/2)**self.dim
+				for quad_id,quad in enumerate(e.quads):
+					if quad:
+						for test_id,dof in enumerate(e.dof_list):
+							phi_val = self.integrator.phi_vals[quad_id][test_id]
 							val = self.integrator._compute_product_integral(phi_val,volume=vol)
 							myZ[dof.ID,0] += val
 			myZs.append(myZ)
@@ -93,7 +93,7 @@ class SingleComponentVariable:
 					if q_bool:
 						varh_vals = 0
 						for local_id, dof in enumerate(e.dof_list):
-							phi_vals = self.integrator.phi_vals[local_id][q_id]
+							phi_vals = self.integrator.phi_vals[q_id][local_id]
 							varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
 						l2_err += self.integrator._compute_error_integral(var_vals,varh_vals,vol)
 		if raw: return l2_err
@@ -201,6 +201,22 @@ class SingleComponentVariable:
 				self.mesh,self.integrator)
 		self.k = k
 		self.solve_simple_system(f,self.operators['mass'],disp,True)
+
+	def solve_dx(self,u_var,ufunc,ffunc,deriv_op):
+		tmp = DifferentialOperator(self.mesh,self.integrator)
+		tmp._build_force(ffunc)
+
+		U = u_var.evaluate_on_grid(ufunc)
+		lhs = deriv_op.dot(U)
+		return lhs, tmp.F
+
+	def solve_dy(self,v_var,vfunc,ffunc,deriv_op):
+		tmp = DifferentialOperator(self.mesh,self.integrator)
+		tmp._build_force(ffunc)
+
+		V = v_var.evaluate_on_grid(vfunc)
+		lhs = deriv_op.dot(V)
+		return lhs, tmp.F
 
 	def vis_dof_sol(self,sol_vec,err=False,true_list=None):
 		if err:

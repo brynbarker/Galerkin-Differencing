@@ -73,10 +73,32 @@ class Element:
 	def check_loc(self,loc):
 		for d in range(self.dim):
 			assert loc[d] >= self.dom[d][0] and loc[d] <= self.dom[d][1]
+	
+	def get_dof_ids(self,id=None):
+		return self.dof_ids
 
 	def get_dof_list(self,id=None):
 		return self.dof_list
 			
+class PseudoElementVel:
+	def __init__(self):
+		self.dof_id_lists = {0:{},1:{}}
+
+		self.comp = None
+
+	def set_comp(self,comp):
+		self.comp = comp
+
+	def add_dof_ids(self,dim,q_id,dof_ids=None):
+		self.dof_id_lists[dim][q_id] = dof_ids
+
+	def get_dof_ids(self,q_id,dim=None):
+		if dim is None:
+			dim = self.comp
+		if dim == 0:
+			return self.dof_id_lists[dim][q_id%2]
+		else:
+			return self.dof_id_lists[dim][int(q_id/2)]
 
 class PseudoElement:
 	def __init__(self,shift_dim):
@@ -99,7 +121,9 @@ class PseudoIntegrator:
 			ords[0],ords[1])
 		self.prod = prod
 		self.phi_vals = {
-			test_id:[] for test_id in range(prod)}
+			quad_id:[] for quad_id in range(4)}
+		# self.phi_vals = {
+		# 	test_id:[] for test_id in range(prod)}
 
 		self._setup_quad_map()
 		self._setup_phi_vals(og_phi_vals)
@@ -116,8 +140,13 @@ class PseudoIntegrator:
 			self.d_quad_map[quad_id] = quad_id+shift
 
 	def _setup_phi_vals(self,og_phi_vals):
-		for test_id in range(self.prod):
-			for quad_id in range(4):
-				pquad_id = self.d_quad_map[quad_id]
-				self.phi_vals[test_id].append(
-					og_phi_vals[test_id][pquad_id])
+		for quad_id in range(4):
+			pquad_id = self.d_quad_map[quad_id]
+			for test_id in range(self.prod):
+				self.phi_vals[pquad_id].append(
+					og_phi_vals[pquad_id][test_id])
+		# for test_id in range(self.prod):
+		# 	for quad_id in range(4):
+		# 		pquad_id = self.d_quad_map[quad_id]
+		# 		self.phi_vals[test_id].append(
+		# 			og_phi_vals[test_id][pquad_id])

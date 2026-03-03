@@ -12,6 +12,48 @@ refinement_index = {'uniform':0,
 				   'stripe':1,
 				   'square':2}
 
+
+class PseudoMesh:
+	def __init__(self,N,dim=2,rtype='uniform',rname=None):
+		rindex = refinement_index[rtype]
+		rClass = refinement_class[rtype]
+		refinement = rClass(rname,'node',N,dim,[1,1])
+		
+		fine_info = refinement.get_fine_info()
+
+		coarse_info = refinement.get_coarse_info()
+		H = 1/N
+		quad_shifts_x = [H/4,3*H/4,H/4,3*H/4]
+		quad_shifts_y = [H/4,H/4,3*H/4,3*H/4]
+		self.coarse_quads = []
+		for id in range(len(coarse_info[1][0])):
+			loc,quads = coarse_info[1][1][id],coarse_info[1][2][id]
+			x,y = loc
+			my_quads = {}
+			for quad_id,quad in enumerate(quads):
+				if quad:
+					new_x = x + quad_shifts_x[quad_id]
+					new_y = y + quad_shifts_y[quad_id]
+					my_quads[quad_id] = (new_x,new_y)
+			self.coarse_quads.append(my_quads)
+		
+
+		fine_info = refinement.get_fine_info()
+		H = 1/N/2
+		quad_shifts_x = [H/4,3*H/4,H/4,3*H/4]
+		quad_shifts_y = [H/4,H/4,3*H/4,3*H/4]
+		self.fine_quads = []
+		for id in range(len(fine_info[1][0])):
+			loc,quads = fine_info[1][1][id],fine_info[1][2][id]
+			x,y = loc
+			my_quads = {}
+			for quad_id,quad in enumerate(quads):
+				if quad:
+					new_x = x + quad_shifts_x[quad_id]
+					new_y = y + quad_shifts_y[quad_id]
+					my_quads[quad_id] = (new_x,new_y)
+			self.fine_quads.append(my_quads)
+
 class Mesh:
 	def __init__(self,N,dim,ords,dofloc='node',rtype='uniform',rname=None):#,ords=[3,3]):
 		self.N = N 

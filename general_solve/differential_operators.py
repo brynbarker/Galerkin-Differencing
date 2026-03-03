@@ -2,6 +2,7 @@ import numpy as np
 from scipy import sparse
 
 
+
 class DifferentialOperator:
 	def __init__(self,mesh,integrator):
 		self.mesh = mesh
@@ -19,7 +20,7 @@ class DifferentialOperator:
 		self.element_map = lambda e: e
 		self.test_sizes = [len(p.dofs) for p in mesh.patches]
 
-	def _get_blocks(self,map=None,test_sizes=None):
+	def _get_blocks(self):
 		if len(self.blocks) == self.dim:
 			return 
 
@@ -35,10 +36,11 @@ class DifferentialOperator:
 				test_e = self.element_map(e)
 				for id,quad in enumerate(e.quads):
 					if quad:
-						for test_id,dof in enumerate(test_e.get_dof_list(id)):
-							Ar += [dof.ID]*len(e.dof_ids)
-							Ac += e.dof_ids
-							Ad += list(self.lookup[id][test_id])
+						test_ids = test_e.get_dof_ids(id)
+						for trial_id,dof in enumerate(e.dof_list):
+							Ar += [dof.ID]*len(test_ids)
+							Ac += test_ids
+							Ad += list(self.lookup[id][trial_id])
 			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(test_size,size))
 			self.blocks.append(spA)
 
@@ -64,11 +66,11 @@ class DifferentialOperator:
 
 			for e in patch.elements.values():
 				vol = (e.h/2)**self.dim
-				for test_id,dof in enumerate(e.dof_list):
-					phi_vals = self.integrator.phi_vals[test_id]
-					fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
-					for (quad,phi_val,f_val) in zip(e.quads,phi_vals,fvals):
-						if quad:
+				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
+				for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
+					if quad:
+						for test_id,dof in enumerate(e.dof_list):
+							phi_val = self.integrator.phi_vals[quad_id][test_id]
 							val = self.integrator._compute_product_integral(phi_val,f_val,vol)
 							F[dof.ID] += val
 			myFs.append(F)
@@ -114,15 +116,70 @@ class ProjectionOperator(DifferentialOperator):
 	def _build_system(self):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
-class DivergenceOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,test_integrator,el_map,test_sizes):
+# class DerivativeOperator(DifferentialOperator):
+# 	def __init__(self,mesh,integrator,test_integrator,el_map,test_sizes,comp=0):
+# 		super().__init__(mesh,integrator)
+# 		self.element_map = el_map
+# 		self.test_sizes = test_sizes
+# 		self.test_integrator = test_integrator
+
+# 		if comp == 0:
+# 			self.lookup = integrator.get_dx_vals(test_integrator)
+# 		else:
+# 			self.lookup = integrator.get_dy_vals(test_integrator)
+
+# 		scales = [p.h for p in self.mesh.patches]
+# 		self.scale0 = scales[0]
+# 		self.scale1 = scales[1]
+
+# 	def _build_system(self):
+# 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
+
+class DerivativeOperator(DifferentialOperator):
+	def __init__(self,mesh,integrator,el_map,test_size,comp):
 		super().__init__(mesh,integrator)
-		self.element_map = el_map
-		self.test_sizes = test_sizes
-		self.test_integrator = test_integrator
 
-		self.lookup = integrator.get_div_vals(test_integrator)
+		def el_map_comp(e):
+			new_e = el_map[e]
+			new_e.set_comp(comp)
+			return new_e
 
-class GradientOperator(DivergenceOperator):
-	def __init__(self, mesh, integrator, test_integrator, map, test_sizes):
-		super().__init__(mesh, integrator, test_integrator, map, test_sizes)
+		self.element_map = el_map_comp
+		self.test_size = test_size
+		self.comp = comp
+
+		scales = [p.h for p in self.mesh.patches]
+		self.scale0 = scales[0]
+		self.scale1 = scales[1]
+
+		self.lookup = None
+
+	def set_lookup(self,lookup_d):
+		self.lookup = lookup_d
+
+	def _build_system(self):
+		super()._build_system(scale0=self.scale0,scale1=self.scale1)
+
+
+class DivergenceOperator:
+	def __init__(self,mesh,integrator,l_dphivals,el_map,test_size):
+		self.diff_ops = []
+
+		self.pux = DerivativeOperator(mesh,integrator,el_map,test_size,0)
+		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_size,1)
+
+		self.lookup = integrator.get_other_div_vals(l_dphivals,test_size)
+		self.pux.set_lookup(self.lookup[0])
+		self.pvy.set_lookup(self.lookup[1])
+
+
+	def _build_system(self):
+		self.pux._build_system()
+		self.pvy._build_system()
+
+		self.spA = sparse.bmat(np.array(
+			 [[self.pux.spA,self.pvy.spA]]),
+			 format='csc')
+
+
+		
