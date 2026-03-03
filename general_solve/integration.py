@@ -94,44 +94,6 @@ class Integrator:
 		else:
 			self.m_vals = vals
 
-	def _get_other_div_vals(self,uv_dphi_vals,uv_size):
-		pord = self.ords[0]
-		ord_string = str(pord+1)+str(pord)+str(pord)
-
-		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
-		fname = fpath+'otherdiv_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
-
-		try:
-			with open(fname,'rb') as handle:
-				vals = pickle.load(handle)
-		except:
-			quad_maps = {0:[2,1,3],1:[3,0,2],2:[0,3,1],3:[1,2,0]}
-			vals = {0:{},1:{}}
-			for quad_id in range(4):
-				u_id,v_id,p_id = quad_maps[quad_id]
-				local_pux = np.zeros((self.prod,uv_size))
-				local_pvy = np.zeros((self.prod,uv_size))
-				for i in range(self.prod):
-					for j in range(uv_size):
-						phi_i = self.phi_vals[p_id][i]
-
-						dx_phi_j = uv_dphi_vals[0][u_id][j][:,:,0]
-						pux_val = self._compute_product_integral(
-								phi_i,dx_phi_j,volume=1/2**self.dim)
-						local_pux[i,j] = pux_val
-
-						dy_phi_j = uv_dphi_vals[1][v_id][j][:,:,1]
-						pvy_val = self._compute_product_integral(
-								phi_i,dy_phi_j,volume=1/2**self.dim)
-						local_pvy[i,j] = pvy_val
-
-				vals[0][p_id] = local_pux
-				vals[1][p_id] = local_pvy
-			with open(fname,'wb') as handle:
-				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
-		self.other_div_vals = vals
-
-
 	def _get_div_vals(self,uv_dphi_vals,uv_size):
 		pord = self.ords[0]
 		ord_string = str(pord+1)+str(pord)+str(pord)
@@ -163,11 +125,12 @@ class Integrator:
 								phi_i,dy_phi_j,volume=1/2**self.dim)
 						local_pvy[i,j] = pvy_val
 
-				vals[0][quad_id] = local_pux
-				vals[1][quad_id] = local_pvy
+				vals[0][p_id] = local_pux
+				vals[1][p_id] = local_pvy
 			with open(fname,'wb') as handle:
 				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
 		self.div_vals = vals
+
 
 	def get_k_vals(self):
 		try:
@@ -183,65 +146,12 @@ class Integrator:
 			self._get_vals(k=False)
 			return self.m_vals
 	
-	def get_other_div_vals(self,uv_dphi_vals,uv_size):
-		try:
-			return self.other_div_vals
-		except:
-			self._get_other_div_vals(uv_dphi_vals,uv_size)
-			return self.other_div_vals
-
 	def get_div_vals(self,uv_dphi_vals,uv_size):
 		try:
 			return self.div_vals
 		except:
 			self._get_div_vals(uv_dphi_vals,uv_size)
 			return self.div_vals
-
-	def _get_dx_vals(self,comp=0,test_int=None):
-		lab = 'dy' if comp else 'dx'
-		ord_string = '{}{}'.format(self.ords[0],self.ords[1])+test_int.ord_string
-		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
-		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
-
-		try:
-			with open(fname,'rb') as handle:
-				vals = pickle.load(handle)
-		except:
-			vals = {}
-			size = self.prod
-			test_size = test_int.prod
-			for id in range(4):
-				local = np.zeros((test_size,size))
-				for i in range(test_size):
-					for j in range(size):
-						phi_i = test_int.phi_vals[id][i]
-						dphi_j = self.dphi_vals[id][j][:,:,comp]
-						val = self._compute_product_integral(
-									phi_i,dphi_j,volume=1/2**self.dim)
-						local[i,j] = val
-
-				vals[id] = local
-			with open(fname,'wb') as handle:
-				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
-		if comp:
-			self.dy_vals = vals
-		else:
-			self.dx_vals = vals
-
-	def get_dx_vals(self,test_int):
-		try:
-			return self.dx_vals
-		except:
-			self._get_dx_vals(0,test_int)
-			return self.dx_vals
-
-	def get_dy_vals(self,test_int):
-		try:
-			return self.dy_vals
-		except:
-			self._get_dx_vals(1,test_int)
-			return self.dy_vals
-
 
 	def _evaluate_func_at_points(self,func,bounds,arr=False):
 		if self.dim == 2:

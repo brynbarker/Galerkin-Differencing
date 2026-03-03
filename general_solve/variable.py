@@ -5,7 +5,7 @@ from scipy import linalg as scla
 import scipy.sparse.linalg as sla
 from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
-from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator
+from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator,DivergenceOperator
 from general_solve.constraints import ConstraintOperator
 
 class MultiComponentVariable:
@@ -39,6 +39,7 @@ class SingleComponentVariable:
 
 		self.true_sol_vec = None
 		self.true_var_vals = None
+		self.interior_list = []
 		
 		self._setup_mean_value()
 
@@ -202,23 +203,66 @@ class SingleComponentVariable:
 		self.k = k
 		self.solve_simple_system(f,self.operators['mass'],disp,True)
 
-	def solve_dx(self,u_var,ufunc,ffunc,deriv_op):
+	def solve_dx(self,u_var,ufunc,ffunc,deriv_op=None):
 		tmp = DifferentialOperator(self.mesh,self.integrator)
 		tmp._build_force(ffunc)
 
 		U = u_var.evaluate_on_grid(ufunc)
+		if deriv_op is None:
+			deriv_op = self.operators['div'].pux.spA
 		lhs = deriv_op.dot(U)
 		return lhs, tmp.F
 
-	def solve_dy(self,v_var,vfunc,ffunc,deriv_op):
+	def solve_dy(self,v_var,vfunc,ffunc,deriv_op=None):
 		tmp = DifferentialOperator(self.mesh,self.integrator)
 		tmp._build_force(ffunc)
 
 		V = v_var.evaluate_on_grid(vfunc)
+		if deriv_op is None:
+			deriv_op = self.operators['div'].pvy.spA
 		lhs = deriv_op.dot(V)
 		return lhs, tmp.F
+
+	def solve_div_truncation(self,vars,var_funcs,ffuncs):
+		u_lhs,u_F = self.solve_dx(vars[0],var_funcs[0],
+							ffuncs[0])
+		v_lhs,v_F = self.solve_dy(vars[1],var_funcs[1],
+							ffuncs[1])
+		err_u = np.linalg.norm(u_lhs-u_F)
+		err_v = np.linalg.norm(v_lhs-v_F)
+		return err_u,err_v
 
 	def vis_dof_sol(self,sol_vec,err=False,true_list=None):
 		if err:
 			sol_vec = abs(self.true_sol_vec-sol_vec)
 		self.mesh.vis_dof_sol(sol_vec,true_list=true_list)
+
+	def setup_laplace(self,mu=1):
+		if self.operators['lap'] is None:
+			self.operators['lap'] = LaplaceOperator(
+				self.mesh,self.integrator,mu=mu)
+		self.operators['lap']._build_system()
+		return self.operators['lap']
+
+	def solve_laplace_truncation(self,var_func,ffunc):
+		if len(self.interior_list)==0:
+			pad = 2*self.h
+			shift = len(self.mesh.patches[0].dofs)
+			for p_id in range(2):
+				for dof in self.mesh.patches[p_id].dofs.values():
+					if pad<=dof.x<=1-pad and pad<=dof.y<=1-pad:
+						self.interior_list.append(dof.ID+p_id*shift)
+		self.operators['lap']._build_force(ffunc)
+
+		U = self.evaluate_on_grid(var_func)
+		lhs = self.operators['lap'].spA.dot(U)
+		
+		return np.linalg.norm((lhs-self.operators['lap'].F)[self.interior_list])
+
+	def setup_divergence(self,l_dphivals,el_map,test_size):
+		if self.operators['div'] is None:
+			self.operators['div'] = DivergenceOperator(
+						self.mesh,self.integrator,
+					    l_dphivals,el_map,test_size)
+		self.operators['div']._build_system()
+		return self.operators['div']

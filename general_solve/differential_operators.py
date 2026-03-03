@@ -55,8 +55,8 @@ class DifferentialOperator:
 			 [None,self.blocks[1]*scale1]]),format='csc')
 
 	def _build_force(self,ffunc):
-		if self.F is not None:
-			return 
+		# if self.F is not None:
+			# return 
 
 		myFs = []
 
@@ -168,7 +168,7 @@ class DivergenceOperator:
 		self.pux = DerivativeOperator(mesh,integrator,el_map,test_size,0)
 		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_size,1)
 
-		self.lookup = integrator.get_other_div_vals(l_dphivals,test_size)
+		self.lookup = integrator.get_div_vals(l_dphivals,test_size)
 		self.pux.set_lookup(self.lookup[0])
 		self.pvy.set_lookup(self.lookup[1])
 

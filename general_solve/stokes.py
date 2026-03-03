@@ -2,12 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import linalg as scla
 import scipy.sparse.linalg as sla
-from general_solve.element import PseudoElement, PseudoIntegrator, PseudoElementVel
+from general_solve.element import PseudoElement
 from general_solve.differential_operators import *
 from general_solve.variable import SingleComponentVariable, MultiComponentVariable
-from general_solve.mesh import PseudoMesh
 from general_solve.shape_functions import *
-from time import time
 
 def gauss(f,a,b,c,d,n):
 	xmid, ymid = (a+b)/2, (c+d)/2
@@ -28,9 +26,21 @@ class Pressure(SingleComponentVariable):
 		super().__init__(N,dim,dofloc,rtype,rname,var,ords,qpn)
 
 	def compute_divergence(self,l_dphivals,test_size,el_map):
-		self.div_op = DivergenceOperator(self.mesh,self.integrator,
-								   l_dphivals,el_map,test_size)
-		self.div_op._build_system()
+		self.div_op = self.setup_divergence(
+							  l_dphivals,el_map,test_size)
+		# self.div_op = DivergenceOperator(self.mesh,self.integrator,
+								#    l_dphivals,el_map,test_size)
+		# self.div_op._build_system()
+
+	def compute_errors(self,P):
+		p_L2 = self.error(P)
+		p_Linf = self.Linf_error(P)
+
+		self.L2_err = p_L2
+		self.Linf_err = p_Linf
+
+		return p_L2,p_Linf
+
 
 class Velocity(MultiComponentVariable):
 	def __init__(self, N, dim=2, doflocs=['xside','yside'], 
@@ -44,27 +54,8 @@ class Velocity(MultiComponentVariable):
 			 [None,self.v.constraints.spC]]),
 			 format='csc')
 
-		self.lap_u_op = LaplaceOperator(
-			self.u.mesh,self.u.integrator,mu=mu)
-		self.lap_u_op._build_system()
-
-		self.lap_v_op = LaplaceOperator(
-			self.v.mesh,self.v.integrator,mu=mu)
-		self.lap_v_op._build_system()
-
-		self.vec = [self.u,self.v]
-
-	def compute_divergence(self,test_integrators,el_map,test_sizes):
-
-		self.du_dx_op = DerivativeOperator(
-			self.u.mesh,self.u.integrator,
-			test_integrators[0], el_map, test_sizes,0)
-		self.du_dx_op._build_system()
-
-		self.dv_dy_op = DerivativeOperator(
-			self.v.mesh,self.v.integrator,
-			test_integrators[1], el_map, test_sizes,1)
-		self.dv_dy_op._build_system()
+		self.lap_u_op = self.u.setup_laplace()
+		self.lap_v_op = self.v.setup_laplace()
 
 	def compute_errors(self,U,V):
 		u_L2 = self.u.error(U,raw=True)
@@ -80,7 +71,6 @@ class Velocity(MultiComponentVariable):
 		return [np.sqrt(u_L2),np.sqrt(v_L2)],[np.linalg.norm(u_Linf),np.linalg.norm(v_Linf)]
 
 
-
 class StokesFlow:
 	def __init__(self,N,dim=2,rtype='uniform',
 				 rname=None,vars=[None,None,None],
@@ -94,7 +84,7 @@ class StokesFlow:
 						   rname=rname,vars=vars[:-1],
 						   ords=ords[:-1],mu=mu)
 
-		self._setup_coupling(N,rtype,rname)
+		self._setup_coupling()
 		self._setup_operators()
 		self._setup_system()
 		self.F = None
@@ -112,11 +102,11 @@ class StokesFlow:
 
 				for e in patch.elements.values():
 					vol = (e.h/2)**self.dim
-					for test_id,dof in enumerate(e.dof_list):
-						phi_vals = var.integrator.phi_vals[test_id]
-						fvals = var.integrator._evaluate_func_on_element(ffunc,e.bounds)
-						for (quad,phi_val,f_val) in zip(e.quads,phi_vals,fvals):
-							if quad:
+					fvals = var.integrator._evaluate_func_on_element(ffunc,e.bounds)
+					for q_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
+						if quad:
+							for test_id,dof in enumerate(e.dof_list):
+								phi_val = var.integrator.phi_vals[q_id][test_id]
 								val = var.integrator._compute_product_integral(phi_val,f_val,vol)
 								F[dof.ID] += val
 				myFs.append(F)
@@ -125,7 +115,7 @@ class StokesFlow:
 		myFs.append(np.zeros(self.sizes[-1]))
 		self.F = np.hstack(myFs)
 
-	def _setup_coupling(self,N,rtype,rname):
+	def _setup_coupling(self):
 		usize = [len(p.dofs) for p in self.velocity.u.mesh.patches]
 		vsize = [len(p.dofs) for p in self.velocity.v.mesh.patches]
 		psize = [len(p.dofs) for p in self.pressure.mesh.patches]
@@ -136,201 +126,33 @@ class StokesFlow:
 		self.C_sizes = [len(self.velocity.u.constraints.true_dofs),
 				  		len(self.velocity.v.constraints.true_dofs),
 						len(self.pressure.constraints.true_dofs)]
-		
-		start = time()
-		quadrant_finder = PseudoMesh(N,rtype=rtype,rname=rname)
-		self.coarse_quads = quadrant_finder.coarse_quads
-		self.fine_quads = quadrant_finder.fine_quads
-		self.div_lookup = self.pressure.integrator.get_div_vals(
-			[self.velocity.u.integrator.dphi_vals,
-			self.velocity.v.integrator.dphi_vals],
-			self.velocity.u.integrator.prod)
-
-		lookup_pux = self.div_lookup[0]
-		lookup_pvy = self.div_lookup[1]
-		dx_blocks,dy_blocks = [],[]
-		for level,quad_level in enumerate([self.coarse_quads,self.fine_quads]):
-			dx_r, dx_c, dx_d = [],[],[]
-			dy_r, dy_c, dy_d = [],[],[]
-			for quad_set in quad_level:
-				for quad_id in quad_set:
-					loc = quad_set[quad_id]
-					p_el,pl = self.pressure.mesh.loc_to_el(loc)
-					u_el,ul = self.velocity.u.mesh.loc_to_el(loc)
-					v_el,vl = self.velocity.v.mesh.loc_to_el(loc)
-					for trial_id,trial_dof in enumerate(p_el.dof_list):
-						mylen = len(u_el.dof_ids)
-						dx_r += [trial_dof.ID]*mylen
-						dy_r += [trial_dof.ID]*mylen
-
-						dx_c += u_el.dof_ids
-						dy_c += v_el.dof_ids
-
-						dx_d += list(lookup_pux[quad_id][trial_id])
-						dy_d += list(lookup_pvy[quad_id][trial_id])
-
-			sp_dx = sparse.coo_array((dx_d,(dx_r,dx_c)),
-							shape=(self.full_sizes[-1][level],self.full_sizes[0][level]))
-			sp_dy = sparse.coo_array((dy_d,(dy_r,dy_c)),
-							shape=(self.full_sizes[-1][level],self.full_sizes[1][level]))
-			dx_blocks.append(sp_dx)
-			dy_blocks.append(sp_dy)
-
-		self.dx = sparse.bmat(np.array(
-				[[dx_blocks[0],None],
-				[None,dx_blocks[1]]]),
-				format='csc')
-		self.dy = sparse.bmat(np.array(
-				[[dy_blocks[0],None],
-				[None,dy_blocks[1]]]),
-				format='csc')
-		self.divergence3 = sparse.bmat(np.array(
-				[[dx_blocks[0],None,dy_blocks[0],None],
-				[None,dx_blocks[1],None,dy_blocks[1]]]),
-				format='csc')
-		print('this divergence time: {}'.format(time()-start))
-
 
 		shift_vecs = np.eye(self.dim)
-		self.d_element_map = {}
-		for dim,velocity_component in enumerate(self.velocity.vec):
-			for p_id,patch in enumerate(velocity_component.mesh.patches):
-				pressure_patch = self.pressure.mesh.patches[p_id]
-				shift_vec = shift_vecs[dim]*patch.h/2
-				for e_vel in patch.elements.values():
-					pL_loc = e_vel.loc - shift_vec
-					pR_loc = e_vel.loc + shift_vec
-
-					e_pL = pressure_patch._get_element_from_loc(pL_loc)
-					e_pR = pressure_patch._get_element_from_loc(pR_loc)
-
-					new_el = PseudoElement(dim)
-					new_el.add_dof_list(e_pL.dof_list,0)
-					new_el.add_dof_list(e_pR.dof_list,1)
-					self.d_element_map[e_vel] = new_el
-		self.element_map = lambda e: self.d_element_map[e]
-
-		start = time()
-		p_element_map = {}
+		d_element_map = {}
 		for p_id,patch in enumerate(self.pressure.mesh.patches):
 			u_patch = self.velocity.u.mesh.patches[p_id]
 			v_patch = self.velocity.v.mesh.patches[p_id]
 			for e_pr in patch.elements.values():
-				new_el = PseudoElementVel()
+				new_el = PseudoElement()
 				for shift_dim,vel_patch in enumerate([u_patch,v_patch]):
 					shift_vec = shift_vecs[shift_dim]*patch.h/2
 					for ind,scale in enumerate([-1,1]):
 						new_loc = e_pr.loc + scale*shift_vec+1e-6
-						if not (0<= new_loc[shift_dim]<=1):
-							new_el.add_dof_ids(shift_dim,ind)
-						else:
+						# if not (0<= new_loc[shift_dim]<=1):
+						try:
 							e_vel = vel_patch._get_element_from_loc(new_loc)
 							new_el.add_dof_ids(shift_dim,ind,e_vel.dof_ids)
-				p_element_map[e_pr] = new_el
+						except:
+							new_el.add_dof_ids(shift_dim,ind)
+				d_element_map[e_pr] = new_el
 
 		l_dphi_vals = [self.velocity.u.integrator.dphi_vals,
 					   self.velocity.v.integrator.dphi_vals]
 		self.pressure.compute_divergence(l_dphi_vals,
-								   self.velocity.u.integrator.prod,p_element_map)
+								   self.velocity.u.integrator.prod,
+								   d_element_map)
 
-		self.divergence4 = self.pressure.div_op.spA
-		print('pressure div comp = {}'.format(time()-start))
-
-		self.d_test_integrator = {}
-		for shift_dim in range(2):
-			test_integrator = PseudoIntegrator(
-				self.pressure.ords, self.pressure.integrator.prod,
-				shift_dim,self.pressure.integrator.phi_vals)
-			self.d_test_integrator[shift_dim] = test_integrator
-
-	def check_divergence(self,h):
-		p_size = self.pressure.integrator.prod
-		u_size = self.velocity.u.integrator.prod
-		v_size = self.velocity.v.integrator.prod
-
-		p_map = self.pressure.integrator.id_map
-		u_map = self.velocity.u.integrator.id_map
-		v_map = self.velocity.v.integrator.id_map
-
-		p_ords = self.pressure.ords
-		u_ords = self.velocity.u.ords
-		v_ords = self.velocity.v.ords
-
-		p_quad_x_shifts = [h/2,-h/2,h/2,-h/2]
-		p_quad_y_shifts = [h/2,h/2,-h/2,-h/2]
-		quad_starts = [(0,0),(h/2,0),(0,h/2),(h/2,h/2)]
-
-		local_divs = {}
-
-		for q_id in range(4):
-			local_dx = np.zeros((p_size,u_size))
-			local_dy = np.zeros((p_size,v_size))
-			x0,y0 = quad_starts[q_id]
-			x1,y1 = x0+h/2,y0+h/2
-			for trial_id in range(p_size):
-				trial_ind = p_map[trial_id]
-				xshft = p_quad_x_shifts[q_id]
-				yshft = p_quad_y_shifts[q_id]
-				phi0 = lambda x,y: phi_2d_ref(p_ords,x+xshft,y,h,trial_ind)
-				phi1 = lambda x,y: phi_2d_ref(p_ords,x,y+yshft,h,trial_ind)
-				for test_id in range(u_size):
-					test_ind_u = u_map[test_id]
-					test_ind_v = v_map[test_id]
-					dphi0 = lambda x,y: dphi_2d_ref(u_ords,x,y,h,test_ind_u)[0]
-					dphi1 = lambda x,y: dphi_2d_ref(v_ords,x,y,h,test_ind_v)[1]
-
-					func0 = lambda x,y: phi0(x,y)*dphi0(x,y)
-					func1 = lambda x,y: phi1(x,y)*dphi1(x,y)
-					val0 = gauss(func0,x0,x1,y0,y1,3)
-					val1 = gauss(func1,x0,x1,y0,y1,3)
-					local_dx[trial_id,test_id] += val0
-					local_dy[trial_id,test_id] += val1
-			local_divs[q_id] = (local_dx,local_dy)
-
-		return local_divs
-
-	def set_up_divergence(self):
-		start = time()
-		local_divs = self.check_divergence(self.velocity.u.h)
-		dx_blocks,dy_blocks = [],[]
-
-		for p_id,patch in enumerate(self.velocity.u.mesh.patches):
-			dx_r, dx_c, dx_d = [],[],[]
-			for e_id in patch.elements:
-				el = patch.elements[e_id]
-				p_el = self.element_map(el)
-				for q_id,quad in enumerate(el.quads):
-					if quad:
-						for trial_id,p_dof in enumerate(p_el.get_dof_list(q_id)):
-							dx_r += [p_dof.ID]*len(el.dof_list)
-							dx_c += el.dof_ids
-							dx_d += list(local_divs[q_id][0][trial_id])
-			sp_dx = sparse.coo_array((dx_d,(dx_r,dx_c)),
-							shape=(self.full_sizes[-1][p_id],self.full_sizes[0][p_id]))
-			dx_blocks.append(sp_dx)
-		for p_id,patch in enumerate(self.velocity.v.mesh.patches):
-			dy_r, dy_c, dy_d = [],[],[]
-			for e_id in patch.elements:
-				el = patch.elements[e_id]
-				p_el = self.element_map(el)
-				for q_id,quad in enumerate(el.quads):
-					if quad:
-						for trial_id,p_dof in enumerate(p_el.get_dof_list(q_id)):
-							dy_r += [p_dof.ID]*len(el.dof_list)
-							dy_c += el.dof_ids
-							dy_d += list(local_divs[q_id][1][trial_id])
-			sp_dy = sparse.coo_array((dy_d,(dy_r,dy_c)),
-							shape=(self.full_sizes[-1][p_id],self.full_sizes[1][p_id]))
-			dy_blocks.append(sp_dy)
-		self.pux = sparse.bmat(np.array(
-				[[dx_blocks[0],None],
-				[None,dx_blocks[1]]]),
-				format='csc')
-		self.pvy = sparse.bmat(np.array(
-				[[dy_blocks[0],None],
-				[None,dy_blocks[1]]]),
-				format='csc')
-		print('compute div comp = {}'.format(time()-start))
+		self.divergence = self.pressure.div_op.spA
 
 
 	def _split_vec(self,vec):
@@ -368,20 +190,6 @@ class StokesFlow:
 			 [None, self.velocity.lap_v_op.spA]]),
 			 format='csc')
 
-		# self.velocity.compute_divergence(self.d_test_integrator,
-		# 			self.element_map,self.test_sizes)
-
-		# self.divergence2 = sparse.bmat(np.array(
-		# 	[[self.velocity.du_dx_op.spA, 
-		# 	  self.velocity.dv_dy_op.spA]]),
-		# 	 format='csc')
-
-		self.set_up_divergence()
-		self.divergence = sparse.bmat(np.array(
-			[[self.pux, 
-			  self.pvy]]),
-			 format='csc')
-		
 	def _setup_system(self):
 		# build constraint matrix
 		self.C = sparse.bmat(np.array(
@@ -393,16 +201,6 @@ class StokesFlow:
 			[[self.laplace,self.divergence.T],
 			 [self.divergence, None]]),
 			 format='csc')
-
-
-		# checklist = [self.pressure.constraints.spC,
-		# 	   self.velocity.u.constraints.spC,
-		# 	   self.velocity.v.constraints.spC,
-		# 	   self.velocity.spC,
-		# 	   self.velocity.lap_u_op.spA,
-		# 	   self.velocity.lap_v_op.spA,
-		# 	   self.laplace,self.velocity.div_u_op.spA,
-		# 	   self.velocity.div_v_op.spA,self.divergence]
 
 		self.sys = self.C.T @ self.A @ self.C
 
@@ -416,7 +214,7 @@ class StokesFlow:
 
 		# need to take care of the nullspace
 
-	def solve(self,forces):
+	def solve(self,forces,disp=True):
 		self._build_force(forces)
 
 		rhs = self.C.T.dot(self.F)
@@ -446,10 +244,14 @@ class StokesFlow:
 		self.sol_vec=sol_vec
 
 		vel_L2_errs, vel_Linf_errs = self.velocity.compute_errors(U,V)
-		print(vel_L2_errs,self.pressure.error(P))
-		print(vel_Linf_errs,self.pressure.Linf_error(P))
+		pr_L2, pr_Linf = self.pressure.compute_errors(P)
+		
 
-		self.view_sol([U,V,P],err=True)
+		if disp:
+			print('L2 Errors:\tVelocity: {}\tPressure: {}'.format(round(self.velocity.L2_err,5),round(pr_L2,5)))
+			print('Linf Errors:\tVelocity: {}\tPressure: {}'.format(round(self.velocity.Linf_err,5),round(pr_Linf,5)))
+			self.view_sol([U,V,P],err=True)
+		
 		
 
 	def view_sol(self,vecs,err=False,true_list=None):
@@ -473,4 +275,44 @@ class StokesFlow:
 				full_system_index-vec_length)
 		return dof,comp
 
+	def test_laplace(self,u=None,f=None):
+		if u is None or f is None:
+			u =	lambda x,y:	x**4+y**4
+			f =	lambda x,y:	12*x**2+12*y**2
 
+		err0 = self.velocity.u.solve_laplace_truncation(u,f)
+		err1 = self.velocity.v.solve_laplace_truncation(u,f)
+		return (err0,err1)
+
+	def test_divergence(self,uv=None,f=None):
+		if uv is None or f is None:
+			u = lambda x,y: np.sin(2*np.pi*y)+x**3
+			v = lambda x,y: np.cos(2*np.pi*x)+y**3
+			f0 = lambda x,y: 3*x**2
+			f1 = lambda x,y: 3*y**2
+		else:
+			u,v = uv
+			f0,f1 = f
+		errs = self.pressure.solve_div_truncation(
+				[self.velocity.u,self.velocity.v],[u,v],[f0,f1])
+		return errs
+
+	def test_operators(self):
+		def res(errs):
+			if errs[0]<1e-12 and errs[1]<1e-12:
+				return 'Passed'
+			return 'Failed'
+		test_names = ['Laplace','Divergence']
+		tests = [self.test_laplace,self.test_divergence]
+		for name,test in zip(test_names,tests):
+			print('{} Test\t:   {}'.format(name,res(test())))
+
+	def check_schur_null(self):
+		dense_div, dense_lap = self.divergence.todense(), self.laplace.todense()
+		
+		schur = dense_div @ scla.inv(dense_lap) @ dense_div.T
+		ns_schur = scla.null_space(schur)
+		n,m = ns_schur.shape
+		for vec in range(m):
+			self.pressure.vis_dof_sol(ns_schur[:,vec])
+		return schur
