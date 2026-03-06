@@ -213,7 +213,7 @@ class Integrator:
 				for jj in range(m):
 					for kk in range(p):
 						prod[ii,jj,kk] = vals0[ii,jj,kk] @ vals1[ii,jj,kk]
-		return self._compute_product_integral(prod,volume=1/2**self.dim)
+		return self._compute_product_integral(prod,volume=1/2**self.dim,noscale=True)
 
 	def _compute_product_integral(self,vals0,vals1=1,volume=1):
 		if self.dim == 2:

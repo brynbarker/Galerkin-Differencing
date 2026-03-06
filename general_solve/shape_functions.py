@@ -2,6 +2,11 @@
 import numpy as	np
 import matplotlib.pyplot as	plt
 
+def phi0(x,h):
+	if 0 <= x <= h:
+		return 1
+	return 0
+
 def	phi1(x,h):
 	if -h <	x <= 0:
 		return 1+1/h*x
@@ -30,6 +35,8 @@ def	phi2L(x,h):
 	else:
 		return 0
 
+def phi0_dx(x,h):
+	return 0
 	
 def	phi1_dx(x,h):
 	if -h <	x <= 0:

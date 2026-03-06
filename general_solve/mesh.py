@@ -15,7 +15,7 @@ refinement_index = {'uniform':0,
 
 class PseudoMesh:
 	def __init__(self,N,dim=2,rtype='uniform',rname=None):
-		rindex = refinement_index[rtype]
+		self.rindex = refinement_index[rtype]
 		rClass = refinement_class[rtype]
 		refinement = rClass(rname,'node',N,dim,[1,1])
 		
@@ -202,7 +202,7 @@ class Mesh:
 
 		plt.show()
 	
-	def vis_dof_sol(self,U,true_list=None):
+	def vis_dof_sol(self,U,true_list=None,shrunk=None):
 		
 		fig,ax = plt.subplots(1,2,figsize=(20,10))
 
@@ -224,6 +224,8 @@ class Mesh:
 				for x in ext_dom:
 					ax[level].plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
 					ax[level].plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
+				if self.rindex==2:
+					ax[level].plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 
 				for id in self.patches[level].dofs:
 					dof = self.patches[level].dofs[id]

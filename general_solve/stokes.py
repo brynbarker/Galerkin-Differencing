@@ -308,6 +308,7 @@ class StokesFlow:
 			print('{} Test\t:   {}'.format(name,res(test())))
 
 	def check_schur_null(self):
+		
 		dense_div, dense_lap = self.divergence.todense(), self.laplace.todense()
 		
 		schur = dense_div @ scla.inv(dense_lap) @ dense_div.T

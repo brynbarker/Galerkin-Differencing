@@ -376,11 +376,104 @@ class SquareRefinement(RefinementPattern):
 		else:
 			return self.rtype
 
+	def _closest_point_side_centered(self,loc,H=None):
+		if self.xside:
+			comp = 1
+		if self.yside:
+			comp = 0
+		side_vals =	[.25,.75]
+		ops	= [abs(.25-loc[comp]),abs(.75-loc[comp])]
+		side = side_vals[np.argmin(ops)]
+		new_loc = [x for x in loc]
+		new_loc[comp] = side
+		return new_loc
+
+	def _check_ax(self,ax,side_vals,sides,loc,H):
+		shift = (side_vals[sides[ax]] - loc[ax])/H
+		if shift < 0 and abs(shift) < 1+self.supports_L[ax]:
+			return True
+		if shift > 0 and shift < 1+self.supports_R[ax]:
+			return True
+		return False
+
 	def _closest_point(self, loc, H=None):
-		# find point going out
 		if .25 in loc or .75 in loc:
 			if self._all_d(lambda x:.25 <= x <= .75,loc):
 				return loc
+
+		side_vals =	[.25,.75]
+		new_loc = [x for x in loc]
+		if self.rtype == 1: # fine edges: find point going out
+			if self.xside or self.yside:
+				comp = self.xside
+				ops = [abs(s-loc[comp]) for s in side_vals]
+				new_loc[comp] = side_vals[np.argmin(ops)]
+				return new_loc
+			else: # cell centered
+				ops = [[abs(s-x) for s in side_vals] for x in loc]
+				sides = [np.argmin(op) for op in ops]
+				side_dists = [min(op) for op in ops]
+
+				min_dist = min(side_dists)
+				for cord,side_dist in enumerate(side_dists):
+					if side_dist == min_dist:
+						cont = self._check_ax(cord,side_vals,sides,loc,H)
+						if cont:
+							new_loc[cord] = side_vals[sides[cord]]
+				return new_loc
+		# mindist	= min(vals)
+		# axes = [i for i	in range(self.dim) if vals[i]==mindist]
+		# for	ax in axes:
+		# 	cont = True
+		# 	if self.ords[ax] %2 == 0:
+		# 		cont = False
+		# 		shift = (side_vals[sides[ax]] - loc[ax])/H
+		# 		if shift < 0 and abs(shift) < 1+self.supports_L[ax]:
+		# 			cont = True
+		# 		if shift > 0 and shift < 1+self.supports_R[ax]:
+		# 			cont = True
+		# 	if cont:
+		# 		nearest_point[ax] =	side_vals[sides[ax]]
+
+
+		else: #fine center: find point going in
+			in_or_out = [.25<x<.75 for x in loc]
+			# print(in_or_out)
+			if max(in_or_out): #one cord in inside (.25,.75)
+				# print(loc)
+				min_cord = np.argmin(in_or_out)
+				side_dists = [abs(s-loc[min_cord]) for s in side_vals]
+				new_loc[min_cord] = side_vals[np.argmin(side_dists)]
+				return new_loc
+			in_or_out = [.25<=x<=.75 for x in loc]
+			if max(in_or_out): #one cord is on line .25 or .75
+				shift = {.25:.25+H/2,.75:.75-H/2}
+				min_cord = np.argmin(in_or_out)
+				side_dists = [abs(s-loc[min_cord]) for s in side_vals]
+				if min(side_dists) > H:
+					return None
+					shift = {.25:.25+H/2,.75:.75-H/2}
+					print('\t\t',loc,min_cord,side_dists,H)
+					max_cord = np.argmax(in_or_out)
+					new_loc[max_cord] = shift[loc[max_cord]]
+				new_loc[min_cord] = side_vals[np.argmin(side_dists)]
+				# print(new_loc,loc,min_cord,side_dists,H)
+				return new_loc
+			# if we are here, both cords are outside [.25,.75]
+			# print(new_loc,loc,min_cord,side_dists,H)
+			shift = {0:.25+H/4,1:.75-H/4}
+			ops = [[abs(s-x) for s in side_vals] for x in loc]
+			sides = [np.argmin(op) for op in ops]
+			side_dists = [min(op) for op in ops]
+
+			max_dist = max(side_dists)
+			for cord,side_dist in enumerate(side_dists):
+				if side_dist == max_dist:
+					new_loc[cord] = side_vals[sides[cord]]
+				else:
+					return None
+					new_loc[cord] = shift[sides[cord]]
+			return new_loc
 
 		side_vals =	[.25,.75]
 		ops	= [(abs(.25-x),abs(.75-x)) for x in	loc]
@@ -472,10 +565,15 @@ class SquareRefinement(RefinementPattern):
 		if self.rtype == 0: # fine center
 			check, echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
-			in_i_edge_a = lambda x,d: i_edges[d][0]<=x<i_edges[d][1]
-			in_i_edge_b = lambda x,d: i_edges[d][2]<x<=i_edges[d][3]
 			in_i_edge = lambda x,d: x in i_edges[d][1:3]#in_i_edge_a(x,d) or in_i_edge_b(x,d)
 			ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
+
+
+			in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
+			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
+			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
+			# ghost	= lambda loc: self._at_least_one(in_i_edge,loc)
+
 		else: # fine edges
 			check, echeck, quad, low_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)

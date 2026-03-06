@@ -1,7 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import sparse
+from scipy import linalg as scla
 from drawarrow import ax_arrow
+
+from general_solve.debug import matvis
 
 class ConstraintOperator:
 	def __init__(self,mesh):
@@ -168,8 +171,18 @@ class ConstraintOperator:
 
 		corner_mods = {}
 
-		# ghost_vals = self.patches[self.gpatch].evaluate_interface_ghosts()
 		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
+		if False:#True:
+			matvis(ghost_vals_arr)
+			ns = scla.null_space(ghost_vals_arr)
+			print(ns.shape)
+			for j in range(ns.shape[1]):
+				nonzer = np.nonzero(ns[:,j])
+				g_deps = np.array(self.ghost_list)[nonzer]
+				for g_dep in g_deps:
+					dof = self.get_dof(g_dep)
+					plt.plot(dof.x,dof.y,'.')
+				plt.show()
 		ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
 
 		for p_id,p in enumerate(self.patches):

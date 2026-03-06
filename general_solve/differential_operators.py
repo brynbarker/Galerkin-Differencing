@@ -1,8 +1,6 @@
 import numpy as np
 from scipy import sparse
 
-
-
 class DifferentialOperator:
 	def __init__(self,mesh,integrator):
 		self.mesh = mesh
@@ -38,6 +36,8 @@ class DifferentialOperator:
 					if quad:
 						test_ids = test_e.get_dof_ids(id)
 						for trial_id,dof in enumerate(e.dof_list):
+							# if dof.ID == 76:
+								# print(id,trial_id,test_ids,self.lookup[id][trial_id])
 							Ar += [dof.ID]*len(test_ids)
 							Ac += test_ids
 							Ad += list(self.lookup[id][trial_id])
@@ -67,9 +67,9 @@ class DifferentialOperator:
 			for e in patch.elements.values():
 				vol = (e.h/2)**self.dim
 				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
-				for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
-					if quad:
-						for test_id,dof in enumerate(e.dof_list):
+				for test_id,dof in enumerate(e.dof_list):
+					for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
+						if quad:
 							phi_val = self.integrator.phi_vals[quad_id][test_id]
 							val = self.integrator._compute_product_integral(phi_val,f_val,vol)
 							F[dof.ID] += val
@@ -115,25 +115,6 @@ class ProjectionOperator(DifferentialOperator):
 
 	def _build_system(self):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
-
-# class DerivativeOperator(DifferentialOperator):
-# 	def __init__(self,mesh,integrator,test_integrator,el_map,test_sizes,comp=0):
-# 		super().__init__(mesh,integrator)
-# 		self.element_map = el_map
-# 		self.test_sizes = test_sizes
-# 		self.test_integrator = test_integrator
-
-# 		if comp == 0:
-# 			self.lookup = integrator.get_dx_vals(test_integrator)
-# 		else:
-# 			self.lookup = integrator.get_dy_vals(test_integrator)
-
-# 		scales = [p.h for p in self.mesh.patches]
-# 		self.scale0 = scales[0]
-# 		self.scale1 = scales[1]
-
-# 	def _build_system(self):
-# 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
 class DerivativeOperator(DifferentialOperator):
 	def __init__(self,mesh,integrator,el_map,test_size,comp):

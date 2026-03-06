@@ -8,6 +8,19 @@ from general_solve.integration import Integrator
 from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator,DivergenceOperator
 from general_solve.constraints import ConstraintOperator
 
+class subtract_null(sla.LinearOperator):
+	def __init__(self,sys,size):
+		self.shape = (size,size)
+		self.sys = sys
+		self.dtype = sys.dtype
+
+	def _matvec(self,x):
+		return self.matvec(x)
+
+	def matvec(self,x):
+		x_proj = sum(x)/x.size
+		return self.sys.dot(x-x_proj)
+
 class MultiComponentVariable:
 	def __init__(self,N,dim=2,doflocs=['node','node'],
 			  rtype='uniform',rname=None,vars=[None,None],
@@ -40,6 +53,7 @@ class SingleComponentVariable:
 		self.true_sol_vec = None
 		self.true_var_vals = None
 		self.interior_list = []
+		self.view_list = []
 		
 		self._setup_mean_value()
 
@@ -60,6 +74,8 @@ class SingleComponentVariable:
 			myZs.append(myZ)
 
 		self.Z = np.vstack(myZs)
+		self.zTc = self.constraints.spC.T.dot(self.Z)[:,0]
+		self.mean_value = sum(self.Z)
 
 	def sol(self, interpolants=None):
 
@@ -150,19 +166,17 @@ class SingleComponentVariable:
 
 		f_proj = sum(rhs)/rhs.size
 		if abs(f_proj) > 1e-12:
-			print('f in null')
 			rhs -= f_proj
 
 		try:
-			x_star,conv = sla.cg(lhs,rhs,rtol=1e-13)
+			x_star,conv = sla.cg(lhs,rhs,rtol=1e-8)
 			assert conv == 0
 		except:
 			x_star = np.linalg.solve(lhs.todense(),rhs)
-			print('Krylov Solver did not converge, check self.totest')
+			print('krylov issue')
 			self.totest = [lhs,rhs]
 
-		zTcx_star = self.Z.T @ C.dot(x_star)
-		alpha = zTcx_star[0] / sum(self.Z)
+		alpha = (self.zTc @ x_star) / self.mean_value
 
 		x = x_star - alpha
 
@@ -245,19 +259,54 @@ class SingleComponentVariable:
 		return self.operators['lap']
 
 	def solve_laplace_truncation(self,var_func,ffunc):
-		if len(self.interior_list)==0:
-			pad = 2*self.h
+		if len(self.view_list)==0:
+			pad = 0#2*self.h
 			shift = len(self.mesh.patches[0].dofs)
 			for p_id in range(2):
 				for dof in self.mesh.patches[p_id].dofs.values():
-					if pad<=dof.x<=1-pad and pad<=dof.y<=1-pad:
-						self.interior_list.append(dof.ID+p_id*shift)
-		self.operators['lap']._build_force(ffunc)
+					if pad<dof.x<1-pad and pad<dof.y<1-pad:
+						full_id = dof.ID+p_id*shift
+						if full_id in self.constraints.true_dofs:
+							self.view_list.append(full_id)
+
+		C = self.constraints.spC
+		lap = self.operators['lap']
+		lap._build_force(ffunc)
+		rhs = C.T.dot(lap.F)
 
 		U = self.evaluate_on_grid(var_func)
-		lhs = self.operators['lap'].spA.dot(U)
+		lhs = (C.T @ lap.spA).dot(U)
+
+		self.vis_dof_sol(C.dot(lhs),true_list=self.view_list)
+		Clhs = C.dot(lhs)
+		denselap = lap.spA.todense()
+		check = True
+		for index,val in enumerate(Clhs):
+			if check:
+				if abs(val) < 1e-10:
+					dof = self.constraints.get_dof(index)
+					if 2*self.h<dof.x<1-2*self.h:
+						if 2*self.h<dof.y<1-2*self.h:
+							check = False
+							print((dof.x/self.h,dof.y/self.h),val)
+							for influenced,val2 in enumerate(denselap[index]):
+								if abs(val2)>1e-8:
+									dof2 = self.constraints.get_dof(influenced)
+									print('\t\t',(dof2.x/self.h,dof2.y/self.h),val2)
+
+		for index,val in enumerate(Clhs):
+			if abs(val) > 1e-8:
+				dof = self.constraints.get_dof(index)
+				print(dof.ID,(dof.x/self.h,dof.y/self.h),val)
+				for influenced,val2 in enumerate(denselap[index]):
+					if abs(val2)>1e-8:
+						dof2 = self.constraints.get_dof(influenced)
+						print('\t\t',dof2.ID,(dof2.x/self.h,dof2.y/self.h),val2)
+
+
+
 		
-		return np.linalg.norm((lhs-self.operators['lap'].F)[self.interior_list])
+		return np.linalg.norm(C.dot(lhs-rhs)[self.view_list])
 
 	def setup_divergence(self,l_dphivals,el_map,test_size):
 		if self.operators['div'] is None:

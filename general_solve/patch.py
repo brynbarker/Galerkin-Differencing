@@ -31,8 +31,19 @@ class Patch:
 
 		self._setup()
 
-		# self.vis()
-		# self.vis_interface_eval_points()
+		if False:
+			self.vis()
+			self.vis_interface_eval_points()
+			check_list = []
+			for gloc in self.interface_points:
+				if gloc in check_list:
+					print(gloc)
+				else:
+					check_list.append(gloc)
+				plt.plot(gloc[0],gloc[1],'.')
+			plt.show()
+
+			print(len(self.interface_points),len(check_list))
 
 	def get_dof(self,non_lookup_id):
 		lookup_id = self.alt_dof[non_lookup_id]
@@ -179,7 +190,8 @@ class Patch:
 		return ghosts
 
 	def vis(self):
-		fig = plt.figure(figsize=(10,10))
+		# fig = plt.figure(figsize=(10,10))
+		plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		for lookup_id in self.dofs:
 			count = 0
 			dof = self.dofs[lookup_id]
@@ -204,6 +216,7 @@ class Patch:
 		if len(self.interface_ghosts) == 0:
 			print('no ghosts on this patch')
 			return
+		plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		for j,(g,pt) in enumerate(zip(self.interface_ghosts,self.interface_points)):
 			gdof = self.dofs[g]
 			color = 'C'+str(j%10)
