@@ -66,6 +66,14 @@ class Element:
 	def set_support(self,quads):
 		self.quads = quads
 
+	def _set_lines(self):
+		self.lines = []
+		m = [[[[0,1],[2,3]],[[0,2],[1,3]]]]
+		for comp in range(2):
+			for half in range(2):
+				dir = int(self.quads[m[comp][half][0]])-int(self.quads[m[comp][half][1]])
+				if dir != 0:
+					self.lines.append((comp,half,dir))
 
 	def set_interface(self):
 		self.interface = True

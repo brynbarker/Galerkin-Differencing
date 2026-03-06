@@ -96,9 +96,49 @@ class LaplaceOperator(DifferentialOperator):
 		self.mu = mu
 
 		self.lookup = integrator.get_k_vals()
+		self.line_blocks = None
 
 	def _build_system(self):
 		super()._build_system(scale0=self.mu,scale1=self.mu)
+	
+	def _add_line_integrals(self):
+		if self.line_blocks is not None:
+			return
+		if self.line_vals is None:
+			print('operator quantities not specified')
+			return
+		
+		self.line_blocks = []
+
+		for test_size,patch in zip(self.test_sizes,self.mesh.patches):
+			size = len(patch.dofs)
+			Lr, Lc, Ld = [],[],[]
+
+			for e in patch.elements.values():
+				test_e = self.element_map(e)
+				for (comp,half,dir) in e.lines:
+					test_ids = test_e.get_dof_ids(id)
+					for trial_id,dof in enumerate(e.dof_list):
+						Lr += [dof.ID]*len(test_ids)
+						Lc += test_ids
+						Ld += list(dir*self.line_lookup[comp][half][trial_id])
+			spL = sparse.coo_array((Ld,(Lr,Lc)),shape=(test_size,size))
+			self.line_blocks.append(spL)
+
+
+	def _build_lines(self):
+		if self.mesh.dofloc == 'node':
+			return None
+		self.lines = self.integrator.get_line_vals()
+
+		self._add_line_integrals()
+
+		scales = [p.h**self.mesh.dim for p in self.mesh.patches]
+		self.spLine = sparse.bmat(np.array(
+			[[self.line_blocks[0]*scales[0],None],
+			 [None,self.line_blocks[1]*scales[1]]]),format='csc')
+
+	
 
 	def _build_force(self, ffunc):
 		super()._build_force(ffunc)

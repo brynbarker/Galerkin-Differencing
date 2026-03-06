@@ -28,6 +28,7 @@ class Integrator:
 
 		self._compute_quad_bounds()
 		self._get_phi_and_dphi_vals()
+		self.phi_line_vals = None
 		# self._get_k_vals()
 
 	def _compute_quad_bounds(self):
@@ -93,6 +94,46 @@ class Integrator:
 			self.k_vals = vals
 		else:
 			self.m_vals = vals
+
+	def _get_line_vals(self):
+
+
+		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fname = fpath+'line_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
+
+		try:
+			with open(fname,'rb') as handle:
+				vals = pickle.load(handle)
+		except:
+			if self.phi_line_vals is None:
+				self._set_line_vals()
+			vals = {}
+			size = self.prod
+			for comp in range(2):
+				vals[comp] = {}
+				for half_id in range(2):
+					local = np.zeros((size,size))
+					for i in range(size):
+						for j in range(size):
+							phi_i = self.phi_line_vals[comp][half_id][i]
+							dphi_jn = self.dphi_line_vals[comp][half_id][j]
+							val = self._compute_line_integral(
+										phi_i,dphi_jn,length=1/2**self.dim)
+							local[i,j] = val
+					vals[comp][half_id] = local
+
+			with open(fname,'wb') as handle:
+				pickle.dump(vals,handle,protocol=pickle.HIGHEST_PROTOCOL)
+		
+		self.line_vals = vals
+
+	def get_line_vals(self):
+		try:
+			return self.line_vals
+		except:
+			self._get_line_vals()
+			return self.line_vals
 
 	def _get_div_vals(self,uv_dphi_vals,uv_size):
 		pord = self.ords[0]
@@ -185,6 +226,26 @@ class Integrator:
 						vals[i,j,k] = func(xinput,yinput,zinput)
 		return vals
 
+	def _evaluate_func_on_line(self,func,bounds,val,comp,arr=False):
+		assert self.dim == 2
+		a,b = bounds
+		mid = (a+b)/2
+		scale = (b-a)/2
+
+		vals = np.zeros(self.qpn)
+		for j in range(self.qpn):
+			input = scale * self.points[j] + mid
+			if comp == 0:
+				x,y = val,input
+			else:
+				x,y = input,val
+			if arr:
+				vals[j] = func(x,y)[comp]
+			else:
+				vals[j] = func(x,y)
+
+		return vals
+
 	def _evaluate_func_on_element(self,func,bounds):
 		lens = np.array(bounds[1::2])-np.array(bounds[::2])
 		all_vals = []
@@ -215,6 +276,11 @@ class Integrator:
 						prod[ii,jj,kk] = vals0[ii,jj,kk] @ vals1[ii,jj,kk]
 		return self._compute_product_integral(prod,volume=1/2**self.dim,noscale=True)
 
+	def _compute_line_integral(self,vals0,vals1,length=1):
+		if self.dim == 2:
+			scale = length/2
+			return (vals0*vals1) @ self.W * scale
+
 	def _compute_product_integral(self,vals0,vals1=1,volume=1):
 		if self.dim == 2:
 			scale = volume/4
@@ -230,3 +296,31 @@ class Integrator:
 		if self.dim == 3:
 			scale = volume / 8
 			return ((vals0-vals1)**2)@ self.W @ self.W @ self.W * scale
+
+	def _set_line_vals(self):
+		self.phi_line_vals = {}
+		self.dphi_line_vals = {}
+
+		val = 1/2
+		for comp in range(2):
+			self.phi_line_vals[comp] = {}
+			self.dphi_line_vals[comp] = {}
+
+			for half_id in range(2):
+				bounds = [half_id/2, (half_id+1)/2]
+				self.phi_line_vals[comp][half_id] = []
+				self.dphi_line_vals[comp][half_id] = []
+			
+				for test_id in range(self.prod):
+					test_ind = self.id_map[test_id]
+
+					phi_test = lambda x,y: self.phi(x,y,1,test_ind)
+					dphi_test = lambda x,y: self.dphi(x,y,1,test_ind)
+
+					vals = self._evaluate_func_on_line(phi_test,bounds,val,comp,arr=False)
+					self.phi_line_vals[comp][half_id].append(vals)
+
+					dvals = self._evaluate_func_on_line(dphi_test,bounds,val,comp,arr=False)
+					self.dphi_line_vals[comp][half_id].append(dvals)
+
+
