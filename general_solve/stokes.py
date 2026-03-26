@@ -45,7 +45,8 @@ class Pressure(SingleComponentVariable):
 class Velocity(MultiComponentVariable):
 	def __init__(self, N, dim=2, doflocs=['xside','yside'], 
 			  rtype='uniform', rname=None, 
-			  vars=[None,None], ords=[1,1], qpn=3,mu=1):
+			  vars=[None,None], ords=[1,1], qpn=None,mu=1):
+		if qpn is None: qpn = max(ords)+1
 		super().__init__(N, dim, doflocs, 
 				   rtype, rname, vars, ords, qpn)
 

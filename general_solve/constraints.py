@@ -98,9 +98,10 @@ class ConstraintOperator:
 
 		# this is for order 3 and 2
 		extraps = {3:[4,-6,4,-1], 2:[3,-3,1]}
-		extraps = [2,-1]
+		extraps = {3:[3,-3,1]}
+		# extraps = [2,-1]
 
-		def corner_sides(x,y):
+		def exact_corners(x,y):
 			xlo = x < .25
 			xhi = x > .75
 
@@ -108,8 +109,33 @@ class ConstraintOperator:
 			yhi = y > .75
 
 			if not ((xlo or xhi) and (ylo or yhi)):
+				return False
+
+			return True
+
+
+		def corner_sides(x,y):
+			xlo = x <= .25
+			xhi = x >= .75
+
+			ylo = y <= .25
+			yhi = y >= .75
+
+			xequal = x==.25 or x==.75
+			yequal = y==.25 or y==.75
+			if not xequal and not yequal:
+				return False,None,False
+			if xequal and yequal:
+				return False,None,False
+
+			if exact_corners(x,y):
+				print(x,y)
+				return False,None,False
+			if not ((xlo or xhi) and (ylo or yhi)):
 				print('false alarm')
-				return False,None
+				return False,None,False
+
+			return True,[xhi,yhi],xequal
 
 			return True, [xhi,yhi] # 0 if low and 1 if hi
 
@@ -123,27 +149,36 @@ class ConstraintOperator:
 
 			# we have four corners, let's just do this manually for now
 			for c_dof in corner_dofs:
-				check, sides = corner_sides(c_dof.x,c_dof.y)
+				check, sides, line = corner_sides(c_dof.x,c_dof.y)
 				if check:
 					start_inds = [c_dof.j,c_dof.i]
 					extrap_inds = {0:[],1:[]}
 					for dim,(start,side) in enumerate(zip(start_inds,sides)):
 						sgn = -1 if side else 1
-						for step in range(2):#p.ords[dim]+1):
+						for step in range(p.ords[dim]+1):
 							extrap_inds[dim].append(int(start+sgn*(step+1)))
 					
 					dof_list, weight_list = [],[]
-					# for x_weight,j in zip(extraps[p.ords[0]],extrap_inds[0]):
-					for x_weight,j in zip(extraps,extrap_inds[0]):
-						# for y_weight,i in zip(extraps[p.ords[1]],extrap_inds[1]):
-						for y_weight,i in zip(extraps,extrap_inds[1]):
-							weight = x_weight*y_weight
-							dof_lookup_id = p._get_lookup_id_from_ind([i,j])
-							dof_local_id = p.dofs[dof_lookup_id].ID
-							global_id = self._global_dof_id(dof_local_id,p_id)
+					for weight,index in zip(extraps[p.ords[line]],extrap_inds[line]):
+						i = index if line else c_dof.i
+						j = index if not line else c_dof.j
+						dof_lookup_id = p._get_lookup_id_from_ind([i,j])
+						dof_local_id = p.dofs[dof_lookup_id].ID
+						global_id = self._global_dof_id(dof_local_id,p_id)
 
-							dof_list.append(global_id)
-							weight_list.append(weight)
+						dof_list.append(global_id)
+						weight_list.append(weight)
+					# for x_weight,j in zip(extraps[p.ords[0]],extrap_inds[0]):
+					# # for x_weight,j in zip(extraps,extrap_inds[0]):
+					# 	for y_weight,i in zip(extraps[p.ords[1]],extrap_inds[1]):
+					# 	# for y_weight,i in zip(extraps,extrap_inds[1]):
+					# 		weight = x_weight*y_weight
+					# 		dof_lookup_id = p._get_lookup_id_from_ind([i,j])
+					# 		dof_local_id = p.dofs[dof_lookup_id].ID
+					# 		global_id = self._global_dof_id(dof_local_id,p_id)
+
+					# 		dof_list.append(global_id)
+					# 		weight_list.append(weight)
 					
 					c_global_id = self._global_dof_id(c_dof.ID,p_id)
 					self.corners[c_global_id] = (dof_list,weight_list)
@@ -172,17 +207,6 @@ class ConstraintOperator:
 		corner_mods = {}
 
 		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
-		if False:#True:
-			matvis(ghost_vals_arr)
-			ns = scla.null_space(ghost_vals_arr)
-			print(ns.shape)
-			for j in range(ns.shape[1]):
-				nonzer = np.nonzero(ns[:,j])
-				g_deps = np.array(self.ghost_list)[nonzer]
-				for g_dep in g_deps:
-					dof = self.get_dof(g_dep)
-					plt.plot(dof.x,dof.y,'.')
-				plt.show()
 		ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
 
 		for p_id,p in enumerate(self.patches):
@@ -211,29 +235,36 @@ class ConstraintOperator:
 				self.Cd += list(sgn*local_vals)
 
 				if g_dof_id in self.corner_deps:
-					corner_mods[g_dof_id] = (local_dofs,sgn*local_vals)
+					if g_dof_id not in corner_mods:
+						corner_mods[g_dof_id] = [[],[]]
+					corner_mods[g_dof_id][0] += local_dofs
+					corner_mods[g_dof_id][1] += list(sgn*local_vals)
 
 		# now let's try setting the corners
-		for corner_id in self.corners:
-			if corner_id in self.ghost_list:
-				print('false alarm')
-				pass
-			else:
-				self.Id[corner_id] = 1
-				dof_list,weight_list = self.corners[corner_id]
-				for dof_id,weight in zip(dof_list,weight_list):
+		# for corner_id in self.corners:
+		# 	if corner_id in self.ghost_list:
+		# 		print('false alarm, corner is already a ghost')
+		# 		pass
+		# 	else:
+		# 		print('count to eight')
+		# 		self.Id[corner_id] = 1
+		# 		dof_list,weight_list = self.corners[corner_id]
+		# 		for dof_id,weight in zip(dof_list,weight_list):
 
-					if dof_id in corner_mods:
-						# this is a little messy
-						mod_dofs,mod_vals = corner_mods[dof_id]
-						for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
-							self.Cr.append(corner_id)
-							self.Cc.append(mod_dof_id)
-							self.Cd.append(mod_val*weight)
-					else:
-						self.Cr.append(corner_id)
-						self.Cc.append(dof_id)
-						self.Cd.append(weight)
+		# 			if dof_id in corner_mods:
+		# 				print('\t count to four')
+		# 				# this is a little messy
+		# 				mod_dofs,mod_vals = corner_mods[dof_id]
+		# 				print(len(mod_dofs))
+		# 				for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
+		# 					self.Cr.append(corner_id)
+		# 					self.Cc.append(mod_dof_id)
+		# 					self.Cd.append(mod_val*weight)
+		# 			else:
+		# 				print('shouldnt get here')
+		# 				self.Cr.append(corner_id)
+		# 				self.Cc.append(dof_id)
+		# 				self.Cd.append(weight)
 
 	def _construct_matrix(self):
 		self.true_dofs = list(np.where(self.Id==0)[0])
@@ -303,7 +334,7 @@ class ConstraintOperator:
 		fig,ax = plt.subplots(1,1,figsize=(10,10))
 		ax.plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'k')
 		val_list = []
-		assert global_id in self.ghost_list
+		assert global_id in self.ghost_list or global_id in self.corners
 		pairs = self.C_full[global_id]
 		ghost_id,gpatch = self._local_dof_id(global_id)
 		assert gpatch==1
@@ -340,8 +371,8 @@ class ConstraintOperator:
 			assert abs(sum(myval_list)-1)<1e-12
 		except:
 			print((ghost.x,ghost.y),sum(myval_list),len(pairs))
-		plt.xlim(.95*minx,1.05*maxx)
-		plt.ylim(.95*miny,1.05*maxy)
+		# plt.xlim(.95*minx,1.05*maxx)
+		# plt.ylim(.95*miny,1.05*maxy)
 		plt.show()
 		return val_list
 
@@ -351,7 +382,8 @@ class ConstraintOperator:
 		color = 0
 		fig,ax = plt.subplots(1,2,figsize=(20,10))
 		val_list = []
-		for ghost_id_global in self.ghost_list:
+		full_ghost_list = self.ghost_list#+list(self.corners.keys())
+		for ghost_id_global in full_ghost_list:
 			pairs = self.C_full[ghost_id_global]
 			ghost_id,gpatch = self._local_dof_id(ghost_id_global)
 			assert gpatch==1

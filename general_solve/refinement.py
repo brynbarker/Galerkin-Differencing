@@ -421,20 +421,6 @@ class SquareRefinement(RefinementPattern):
 						if cont:
 							new_loc[cord] = side_vals[sides[cord]]
 				return new_loc
-		# mindist	= min(vals)
-		# axes = [i for i	in range(self.dim) if vals[i]==mindist]
-		# for	ax in axes:
-		# 	cont = True
-		# 	if self.ords[ax] %2 == 0:
-		# 		cont = False
-		# 		shift = (side_vals[sides[ax]] - loc[ax])/H
-		# 		if shift < 0 and abs(shift) < 1+self.supports_L[ax]:
-		# 			cont = True
-		# 		if shift > 0 and shift < 1+self.supports_R[ax]:
-		# 			cont = True
-		# 	if cont:
-		# 		nearest_point[ax] =	side_vals[sides[ax]]
-
 
 		else: #fine center: find point going in
 			in_or_out = [.25<x<.75 for x in loc]
@@ -456,6 +442,10 @@ class SquareRefinement(RefinementPattern):
 					print('\t\t',loc,min_cord,side_dists,H)
 					max_cord = np.argmax(in_or_out)
 					new_loc[max_cord] = shift[loc[max_cord]]
+				elif min(side_dists) == H:
+					tmp = side_vals[np.argmin(side_dists)]
+					new_loc[min_cord] = shift[tmp]
+					return new_loc
 				new_loc[min_cord] = side_vals[np.argmin(side_dists)]
 				# print(new_loc,loc,min_cord,side_dists,H)
 				return new_loc
@@ -504,8 +494,8 @@ class SquareRefinement(RefinementPattern):
 		quad =	lambda loc:	self._all_d(center,loc)
 
 		### let's change things so that low support gives us the corners
-		corner = lambda x,d: x <= edges[d][0] or x >= edges[d][-1]
-		low_support = lambda loc: False#self._all_d(corner,loc)
+		corner = lambda x,d: x < edges[d][1] or x > edges[d][-2]
+		low_support = lambda loc: self._all_d(corner,loc)
 		# if self.node:
 		# 	low_support = lambda loc: False
 		# else:
@@ -566,10 +556,10 @@ class SquareRefinement(RefinementPattern):
 			check, echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
 			in_i_edge = lambda x,d: x in i_edges[d][1:3]#in_i_edge_a(x,d) or in_i_edge_b(x,d)
-			ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
+			# ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
 
 
-			in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
+			# in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
 			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
 			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
 			# ghost	= lambda loc: self._at_least_one(in_i_edge,loc)
@@ -583,6 +573,7 @@ class SquareRefinement(RefinementPattern):
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
 		interface	= lambda loc: check1(loc) or check2(loc)
+		ghost = lambda loc: True
 
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]

@@ -21,6 +21,33 @@ class subtract_null(sla.LinearOperator):
 		x_proj = sum(x)/x.size
 		return self.sys.dot(x-x_proj)
 
+def corner_pin(lhs,rhs,ghost_inds,true_vec):
+	sz = len(ghost_inds)
+	old_sz = rhs.size
+	true_inds = [i for i in range(old_sz) if i not in ghost_inds]
+
+	new_lhs = np.zeros((sz,sz))
+	new_vec = np.zeros((sz))
+
+	pinned_sys = np.zeros((sz,old_sz-sz))
+	pinned_vec = np.zeros((old_sz-sz))
+
+	new_rhs = np.zeros((sz))
+
+	for i,ghost_ind in enumerate(ghost_inds):
+		new_rhs[i] = rhs[ghost_ind]
+		for j,ghost_ind_2 in enumerate(ghost_inds):
+			new_lhs[i,j] = lhs[ghost_ind,ghost_ind_2]
+		for j,true_ind in enumerate(true_inds):
+			pinned_sys[i,j] = lhs[ghost_ind,true_ind]
+			if i==0:
+				pinned_vec[j] = true_vec[true_ind]
+
+	new_vec = np.linalg.solve(new_lhs,new_rhs-pinned_sys@pinned_vec)
+	return new_vec, new_lhs,new_rhs,pinned_sys,pinned_vec
+
+
+
 class MultiComponentVariable:
 	def __init__(self,N,dim=2,doflocs=['node','node'],
 			  rtype='uniform',rname=None,vars=[None,None],
@@ -33,7 +60,8 @@ class MultiComponentVariable:
 class SingleComponentVariable:
 	def __init__(self,N,dim=2,dofloc='node',
 			  rtype='uniform',rname=None,var=None,
-			  ords=[1,1],qpn=3):
+			  ords=[1,1],qpn=None):
+		if qpn is None: qpn = max(ords)+1
 		self.N = N
 		self.dim = dim
 		self.varfunc = var
@@ -86,6 +114,7 @@ class SingleComponentVariable:
 			e,dof_shift = self.mesh.loc_to_el(loc)
 			val = 0
 			for local_id, dof in enumerate(e.dof_list):
+				# print(dof.phi(loc),dof.h==self.h)
 				val += interpolants[dof.ID+dof_shift]*dof.phi(loc)
 			return val
 		return solution
@@ -169,7 +198,7 @@ class SingleComponentVariable:
 			rhs -= f_proj
 
 		try:
-			x_star,conv = sla.cg(lhs,rhs,rtol=1e-8)
+			x_star,conv = sla.cg(lhs,rhs,rtol=1e-12)
 			assert conv == 0
 		except:
 			x_star = np.linalg.solve(lhs.todense(),rhs)
@@ -179,6 +208,7 @@ class SingleComponentVariable:
 		alpha = (self.zTc @ x_star) / self.mean_value
 
 		x = x_star - alpha
+		self.x = x
 
 		sol_vec = C.dot(x)
 
@@ -246,10 +276,10 @@ class SingleComponentVariable:
 		err_v = np.linalg.norm(v_lhs-v_F)
 		return err_u,err_v
 
-	def vis_dof_sol(self,sol_vec,err=False,true_list=None):
+	def vis_dof_sol(self,sol_vec,err=False,true_list=None,log=True):
 		if err:
 			sol_vec = abs(self.true_sol_vec-sol_vec)
-		self.mesh.vis_dof_sol(sol_vec,true_list=true_list)
+		self.mesh.vis_dof_sol(sol_vec,true_list=true_list,log=log)
 
 	def setup_laplace(self,mu=1):
 		if self.operators['lap'] is None:

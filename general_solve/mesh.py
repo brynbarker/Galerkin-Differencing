@@ -202,7 +202,7 @@ class Mesh:
 
 		plt.show()
 	
-	def vis_dof_sol(self,U,true_list=None,shrunk=None):
+	def vis_dof_sol(self,U,true_list=None,shrunk=None,log=True):
 		
 		fig,ax = plt.subplots(1,2,figsize=(20,10))
 
@@ -235,7 +235,11 @@ class Mesh:
 						locs[level].append(dof.loc)
 
 				x,y = np.array(locs[level]).T
-				plot = ax[level].scatter(x,y,c=c_vals[level],cmap='jet',zorder=1)	
+				if log:
+					logvals = [np.log(cval) for cval in c_vals[level]]
+					plot = ax[level].scatter(x,y,c=logvals,cmap='jet',zorder=1)	
+				else:
+					plot = ax[level].scatter(x,y,c=c_vals[level],cmap='jet',zorder=1)	
 				fig.colorbar(plot,location=cbar_loc[level])
 
 				ax[level].set_aspect('equal')
