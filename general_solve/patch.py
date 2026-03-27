@@ -114,10 +114,12 @@ class Patch:
 				self.corners.append(lookup_id)
 			
 		for id in range(len(e_info[0])):
-			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
+			ind,loc,quads,fine_inter = e_info[0][id],e_info[1][id],e_info[2][id]
 			# print(self.level,ind,loc)
 			newel = Element(id,self.dim,ind,np.array(loc),self.h,self.ords)
 			newel.set_support(quads)
+			if fine_inter:
+				newel.set_interface()
 			dof_lookup_id = self._get_lookup_id_from_loc(loc)
 			strt = dof_lookup_id-self.Ls[0]-self.Ls[1]*self.lens[0]#1-self.xlen
 			newel.add_dofs(strt,self.lens[0])
