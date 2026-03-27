@@ -35,10 +35,13 @@ class RefinementPattern:
 		self.supports_L = [int((ord-1)/2) for ord in ords]
 
 		self.d_data = {i:[[],[]] for i in range(2)} # ind list and loc list
-		self.e_data = {i:[[],[],[]] for i in range(2)} # ind list and loc list and quads
+		self.e_data = {i:[[],[],[],[]] for i in range(2)} # ind list and loc list and quads
 		self.b_data = {i:[[],[]] for i in range(2)} # periodic and dirichlet
 		self.i_data = {i:[[],[],[]] for i in range(2)}
 		self.g_data = {i:[[],[]] for i in range(2)}
+
+	def set_interface_element_type(self,el):
+		return 0
 
 	def get_patch_id(self,loc):
 		return 0
@@ -172,7 +175,8 @@ class RefinementPattern:
 			H = self.h/2
 			L = 1
 		check, echeck, periodic, dirichlet = checks[:4]
-		low_support, quad, interface, ghost = checks[-4:]
+		low_support, quad, interface, ghost = checks[-4:-1]
+		fine_interface_el = checks[-1]
 
 		if self.dim	== 2:
 			xdom,ydom = doms
@@ -188,6 +192,7 @@ class RefinementPattern:
 						self.e_data[L][0].append([i,j])
 						self.e_data[L][1].append([x,y])
 						self.e_data[L][2].append(self._get_el_quads([x,y],H,quad))
+						self.e_data[L][3].append(fine_interface_el([x,y]))
 					if interface([x,y]):
 						self.i_data[L][0].append([i,j])
 						if ghost([x,y]):
@@ -246,15 +251,17 @@ class UniformRefinement(RefinementPattern):
 		low_support = lambda loc: False
 
 		ghost = lambda loc: False
+		fine_interface_el = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  low_support, quad, interface, ghost,
+				  fine_interface_el]
 		return doms, checks
 
 	def _setup_fine_info(self):
 		doms = [[] for i in range(self.dim)]
 		tmp = lambda loc: False
-		return doms, [tmp]*8
+		return doms, [tmp]*9
 
 class StripeRefinement(RefinementPattern):
 	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
@@ -277,6 +284,25 @@ class StripeRefinement(RefinementPattern):
 			return stripe_id
 		else:
 			return 1-stripe_id
+
+	def set_interface_element_type(self, el):
+		reg_first = .75 if self.rtype%2 else .25
+		reg_second = .25 if self.rtype%2 else .75
+		reg_dim = int(self.rtype/2)
+
+		if el.loc[reg_dim] == reg_first:
+			first_type = 'reg'
+		elif el.loc[reg_dim] == reg_second-self.h/2:
+			first_type = 'rev'
+		else:
+			first_type = None
+
+		if first_type is not None:
+			if int(el.loc[1-reg_dim]/(self.h/2))%2==0:
+				second_coll = 'on'
+			else:
+				second_coll = 'off'
+			el.set_interface_type([reg_dim],[first_type],[second_coll])
 
 
 	def _closest_point(self, loc, H=None):
@@ -327,9 +353,11 @@ class StripeRefinement(RefinementPattern):
 
 		low_support = lambda loc: False
 		ghost = lambda loc: False
+		fine_interface_el = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  low_support, quad, interface, ghost,
+				  fine_interface_el]
 		return doms, checks
 
 	def _setup_fine_info(self):
@@ -348,16 +376,19 @@ class StripeRefinement(RefinementPattern):
 			check, echeck, quad = self.edge_checks(H,edges,domain,loose_center)
 			myfar_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
 			ghost = lambda loc: myfar_in(loc[rdim],rdim)
+			fine_interface_el = lambda loc: loc[rdim] in [.25-H,.75]
 		else: # fine stripe
 			check,echeck,quad = self.stripe_checks(H,edges,domain,center)
 			ghost = lambda loc: far_out(loc[rdim],rdim)
+			fine_interface_el = lambda loc: loc[rdim] in [.25,.75-H]
 
 		interface = lambda loc: slice(loc[rdim],rdim)
 
 		low_support = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  low_support, quad, interface, ghost,
+				  fine_interface_el]
 		return doms, checks
 
 class SquareRefinement(RefinementPattern):
@@ -375,6 +406,33 @@ class SquareRefinement(RefinementPattern):
 			return 1-self.rtype
 		else:
 			return self.rtype
+
+	def set_interface_element_type(self, el):
+		first = .75 if self.rtype else .25
+		second = .25 if self.rtype else .75
+
+		dims,types,colls = [],[],[]
+
+		for ind in range(2):
+			other_in = .25 <= el.loc[1-ind] <= .75-self.h/2
+			if other_in and el.loc[ind] == first:
+				first_type = 'reg'
+			elif other_in and el.loc[ind] == second-self.h/2:
+				first_type = 'rev'
+			else:
+				first_type = None
+
+			if first_type is not None:
+				if int(el.loc[1-ind]/(self.h/2))%2==0:
+					second_coll = 'on'
+				else:
+					second_coll = 'off'
+
+				dims.append(ind)
+				types.append(first_type)
+				colls.append(second_coll)
+
+		el.set_interface_type(dims,types,colls)
 
 	def _closest_point_side_centered(self,loc,H=None):
 		if self.xside:
@@ -424,9 +482,7 @@ class SquareRefinement(RefinementPattern):
 
 		else: #fine center: find point going in
 			in_or_out = [.25<x<.75 for x in loc]
-			# print(in_or_out)
 			if max(in_or_out): #one cord in inside (.25,.75)
-				# print(loc)
 				min_cord = np.argmin(in_or_out)
 				side_dists = [abs(s-loc[min_cord]) for s in side_vals]
 				new_loc[min_cord] = side_vals[np.argmin(side_dists)]
@@ -438,19 +494,12 @@ class SquareRefinement(RefinementPattern):
 				side_dists = [abs(s-loc[min_cord]) for s in side_vals]
 				if min(side_dists) > H:
 					return None
-					shift = {.25:.25+H/2,.75:.75-H/2}
-					print('\t\t',loc,min_cord,side_dists,H)
-					max_cord = np.argmax(in_or_out)
-					new_loc[max_cord] = shift[loc[max_cord]]
 				elif min(side_dists) == H:
 					tmp = side_vals[np.argmin(side_dists)]
 					new_loc[min_cord] = shift[tmp]
 					return new_loc
 				new_loc[min_cord] = side_vals[np.argmin(side_dists)]
-				# print(new_loc,loc,min_cord,side_dists,H)
 				return new_loc
-			# if we are here, both cords are outside [.25,.75]
-			# print(new_loc,loc,min_cord,side_dists,H)
 			shift = {0:.25+H/4,1:.75-H/4}
 			ops = [[abs(s-x) for s in side_vals] for x in loc]
 			sides = [np.argmin(op) for op in ops]
@@ -462,29 +511,7 @@ class SquareRefinement(RefinementPattern):
 					new_loc[cord] = side_vals[sides[cord]]
 				else:
 					return None
-					new_loc[cord] = shift[sides[cord]]
 			return new_loc
-
-		side_vals =	[.25,.75]
-		ops	= [(abs(.25-x),abs(.75-x)) for x in	loc]
-		sides =	[np.argmin(op) for op in ops]
-		vals = [min(op)	for	op in ops]
-
-		mindist	= min(vals)
-		axes = [i for i	in range(self.dim) if vals[i]==mindist]
-		nearest_point =	np.copy(loc)
-		for	ax in axes:
-			cont = True
-			if self.ords[ax] %2 == 0:
-				cont = False
-				shift = (side_vals[sides[ax]] - loc[ax])/H
-				if shift < 0 and abs(shift) < 1+self.supports_L[ax]:
-					cont = True
-				if shift > 0 and shift < 1+self.supports_R[ax]:
-					cont = True
-			if cont:
-				nearest_point[ax] =	side_vals[sides[ax]]
-		return nearest_point
 
 	def center_checks(self,H,edges,center,far_out):
 		mini = lambda x,d: edges[d][0]<= x <= edges[d][-1]
@@ -539,9 +566,11 @@ class SquareRefinement(RefinementPattern):
 		interface	= lambda loc: check1(loc) or check2(loc)
 
 		ghost = lambda loc: False
+		fine_interface_el = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  low_support, quad, interface, ghost,
+				  fine_interface_el]
 		return doms, checks
 
 
@@ -556,19 +585,21 @@ class SquareRefinement(RefinementPattern):
 			check, echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
 			in_i_edge = lambda x,d: x in i_edges[d][1:3]#in_i_edge_a(x,d) or in_i_edge_b(x,d)
-			# ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
 
 
-			# in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
 			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
 			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
-			# ghost	= lambda loc: self._at_least_one(in_i_edge,loc)
+
+			one_inter_el = lambda loc,d: loc[d] in [.25,.75-H] and .25<=loc[1-d]<=.75-H
+			fine_interface_el = lambda loc: one_inter_el(loc,0) or one_inter_el(loc,1)
 
 		else: # fine edges
 			check, echeck, quad, low_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
 			ghost_x =	lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
 			ghost	= lambda loc: self._all_d(ghost_x,loc)
+			one_inter_el = lambda loc,d: loc[d] in [.25-H,.75] and (.25-H>=loc[1-d] or loc[1-d]>=.75)
+			fine_interface_el = lambda loc: one_inter_el(loc,0) or one_inter_el(loc,1)
 
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
@@ -576,5 +607,6 @@ class SquareRefinement(RefinementPattern):
 		ghost = lambda loc: True
 
 		checks = [check, echeck, periodic, dirichlet,
-				  low_support, quad, interface, ghost]
+				  low_support, quad, interface, ghost,
+				  fine_interface_el]
 		return doms, checks
