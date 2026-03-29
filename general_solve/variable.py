@@ -150,7 +150,7 @@ class SingleComponentVariable:
 
 		f_proj = sum(rhs)/rhs.size
 		if abs(f_proj) > 1e-12:
-			print('f in null')
+			# print('f in null')
 			rhs -= f_proj
 
 		try:

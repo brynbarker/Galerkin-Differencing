@@ -333,10 +333,10 @@ class ConstraintOperator:
 		return val_list
 
 
-	def vis_interface(self):
+	def vis_interface(self,mylevel=None):
 		issue_spots = []
 		color = 0
-		fig,ax = plt.subplots(1,2,figsize=(20,10))
+		fig,ax = plt.subplots(2,1,figsize=(10,20))
 		val_list = []
 		for ghost_id_global in self.ghost_list:
 			pairs = self.C_full[ghost_id_global]
@@ -345,6 +345,7 @@ class ConstraintOperator:
 			ghost = self.patches[gpatch].get_dof(ghost_id)
 			mycolor = 'C'+str(color % 10)
 			color += 1
+			ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			myval_list = []
 			for (c,v) in pairs:
 				if len(pairs) == 1:#if v == 1:
@@ -372,11 +373,13 @@ class ConstraintOperator:
 					# mycolor = 'C'+str(color % 10)
 					# color += 1
 					ax[1].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
-					ax[1].plot(cdof.x,cdof.y,'.',c=mycolor)
-					# ax[1].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
-					ax_arrow(tail_position=(ghost.x,ghost.y),
-						head_position=(cdof.x,cdof.y),
-						ax=ax[1],color=mycolor,radius=.4)
+
+					if mylevel is None or mylevel==cpatch:
+						ax[1].plot(cdof.x,cdof.y,'.',c=mycolor)
+						# ax[1].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
+						ax_arrow(tail_position=(ghost.x,ghost.y),
+							head_position=(cdof.x,cdof.y),
+							ax=ax[1],color=mycolor,radius=.4)
 			try:
 				assert abs(sum(myval_list)-1)<1e-12
 			except:
