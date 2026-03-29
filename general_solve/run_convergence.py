@@ -49,12 +49,12 @@ def	run_it(dofloc_ops=doflocs,rtype='uniform',rname_ops=None,ord_ops=[1,2,3],sys
 							   rname=rname,var=u,ords=[ord,ord])
 					if sys == 'lap':
 						s.solve_poisson(f=f_lap,disp=False)
-						L2.append(s.operators['lap'].err)
-						Linf.append(s.operators['lap'].Linf_err)
+						L2.append(s.operators["lap"].err)
+						Linf.append(s.operators["lap"].Linf_err)
 					if sys == 'helm':
 						s.solve_helmholtz(f=f_helm,disp=False)
-						L2.append(s.operators['helm'].err)
-						Linf.append(s.operators['helm'].Linf_err)
+						L2.append(s.operators["helm"].err)
+						Linf.append(s.operators["helm"].Linf_err)
 
 					del	s
 
