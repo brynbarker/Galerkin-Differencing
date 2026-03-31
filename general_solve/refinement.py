@@ -327,7 +327,6 @@ class StripeRefinement(RefinementPattern):
 		emini_nonr = lambda x: -H < x < 1
 		echeck = lambda loc: emini(loc[rdim]) and emini_nonr(loc[1-rdim])
 		quad =	lambda loc:	self._all_d(domain,loc) and not loose_center(loc[rdim])
-		#quad =	lambda loc:	domain(loc[1-rdim]) and not loose_center(loc[rdim])
 
 		return check, echeck, quad
 
@@ -462,10 +461,6 @@ class SquareRefinement(RefinementPattern):
 				side_dists = [abs(s-loc[min_cord]) for s in side_vals]
 				if min(side_dists) > H:
 					return None
-					shift = {.25:.25+H/2,.75:.75-H/2}
-					print('\t\t',loc,min_cord,side_dists,H)
-					max_cord = np.argmax(in_or_out)
-					new_loc[max_cord] = shift[loc[max_cord]]
 				elif min(side_dists) == H:
 					tmp = side_vals[np.argmin(side_dists)]
 					new_loc[min_cord] = shift[tmp]
@@ -492,17 +487,14 @@ class SquareRefinement(RefinementPattern):
 	def center_checks(self,H,edges,center,far_out):
 		mini = lambda x,d: edges[d][0]<= x <= edges[d][-1]
 		check = lambda loc: self._all_d(mini,loc)
-		emini =	lambda x: .25-H	< x	< .75
+		mybnd = [.25-H*(self.ords[d]!=0) for d in range(self.dim)]
+		emini =	lambda x,d: mybnd[d] < x < .75
 		echeck = lambda loc: self._all_d(emini,loc)
 		quad =	lambda loc:	self._all_d(center,loc)
 
 		### let's change things so that low support gives us the corners
 		corner = lambda x,d: x < edges[d][1] or x > edges[d][-2]
 		low_support = lambda loc: self._all_d(corner,loc)
-		# if self.node:
-		# 	low_support = lambda loc: False
-		# else:
-		# 	low_support = lambda loc: self._all_d(far_out,loc)
 
 		return check, echeck, quad, low_support
 
@@ -511,7 +503,8 @@ class SquareRefinement(RefinementPattern):
 		check = lambda loc: self._at_least_one(minicheck,loc)
 
 		eoutside = lambda x: -H < x < 1
-		einside = lambda x: .25 <= x <= .75-H
+		mybnd = [.75-H*(self.ords[d]!=0) for d in range(self.dim)]
+		einside = lambda x,d: .25 <= x <= mybnd[d]
 		echeck = lambda loc: self._not_all_d(einside,loc) and self._all_d(eoutside,loc)
 		quad =	lambda loc:	self._all_d(domain,loc) and self._not_all_d(loose_center,loc)
 
@@ -554,14 +547,10 @@ class SquareRefinement(RefinementPattern):
 		if self.rtype == 0: # fine center
 			check, echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
-			# in_i_edge = lambda x,d: x in i_edges[d][1:3]#in_i_edge_a(x,d) or in_i_edge_b(x,d)
-			# ghost	= lambda loc: self._all_d(center,loc) and self._at_least_one(in_i_edge,loc)
-
 
 			in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
 			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
 			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
-			# ghost	= lambda loc: self._at_least_one(in_i_edge,loc)
 
 		else: # fine edges
 			check, echeck, quad, low_support = self.outside_checks(
@@ -572,7 +561,6 @@ class SquareRefinement(RefinementPattern):
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
 		interface	= lambda loc: check1(loc) or check2(loc)
-		# ghost = lambda loc: True
 
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]

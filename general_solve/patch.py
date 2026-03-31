@@ -108,7 +108,6 @@ class Patch:
 			if low:
 				self.corners.append(lookup_id)
 
-		
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
 			newel = Element(id,self.dim,ind,np.array(loc),self.h,self.ords)
@@ -148,6 +147,10 @@ class Patch:
 			for j,dof_id in enumerate(self.interface_dofs):
 				dof = self.dofs[dof_id]
 				diff = (loc[0]-dof.x)/self.h
+				#if diff < -1 or diff > 2:
+				#	tmp = dof.phi(loc)
+				#	if tmp != 0:
+				#		print(tmp)
 				evals[i,j] = dof.phi(loc)
 		return evals
 
@@ -162,6 +165,9 @@ class Patch:
 				dof = self.dofs[dof_id]
 				val = dof.phi(loc)
 				ghost_arr[i,j] = val
+		# plt.matshow(ghost_arr)
+		# plt.show()
+		# print(np.linalg.eig(ghost_arr)[0],np.sum(ghost_arr,axis=0),np.sum(ghost_arr,axis=1),sep='\n')
 		return ghost_arr#np.linalg.inv(ghost_arr)
 
 	def evaluate_interface_ghosts(self):
@@ -169,6 +175,13 @@ class Patch:
 			return None
 
 		return self.check_evaluate_interface_ghosts()
+		ghosts = []
+		for loc,dof_id in zip(self.interface_points,self.interface_ghosts):
+			dof = self.dofs[dof_id]
+			val = dof.phi(loc)
+			assert abs(val)>1e-12
+			ghosts.append(val)
+		return ghosts
 
 	def vis(self,rtype=None):
 		# fig = plt.figure(figsize=(10,10))
