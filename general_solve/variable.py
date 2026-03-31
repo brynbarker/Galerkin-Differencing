@@ -204,6 +204,10 @@ class SingleComponentVariable:
 
 		f_proj = sum(rhs)/rhs.size
 		if abs(f_proj) > 1e-12:
+<<<<<<< HEAD
+=======
+			# print('f in null')
+>>>>>>> 62151f07968275c89c19cadc3f45c6ae5a308557
 			rhs -= f_proj
 
 		try:

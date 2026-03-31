@@ -398,6 +398,7 @@ class ConstraintOperator:
 			ghost = self.patches[gpatch].get_dof(ghost_id)
 			mycolor = 'C'+str(color % 10)
 			color += 1
+			ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			myval_list = []
 			for (c,v) in pairs:
 				if len(pairs) == 1:#if v == 1:
