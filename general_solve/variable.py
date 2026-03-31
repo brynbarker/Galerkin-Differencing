@@ -62,6 +62,16 @@ class SingleComponentVariable:
 			  rtype='uniform',rname=None,var=None,
 			  ords=[1,1],qpn=None):
 		if qpn is None: qpn = max(ords)+1
+		
+		ord_incomp = False
+		if min(ords)==0 and dofloc=='node':
+			ord_incomp = True
+		elif ords[0]==0 and dofloc=='xside':
+			ord_incomp = True
+		elif ords[1]==0 and dofloc=='yside':
+			ord_incomp = True
+		if ord_incomp:
+			raise ValueError('incompatible p value and dof location')
 		self.N = N
 		self.dim = dim
 		self.varfunc = var
@@ -114,7 +124,6 @@ class SingleComponentVariable:
 			e,dof_shift = self.mesh.loc_to_el(loc)
 			val = 0
 			for local_id, dof in enumerate(e.dof_list):
-				# print(dof.phi(loc),dof.h==self.h)
 				val += interpolants[dof.ID+dof_shift]*dof.phi(loc)
 			return val
 		return solution
@@ -137,7 +146,7 @@ class SingleComponentVariable:
 				for q_id,q_bool in enumerate(e.quads):
 					var_vals = self.true_var_vals[p_id][e.ID][q_id]
 					if q_bool:
-						varh_vals = 0
+						varh_vals = np.zeros_like(var_vals)
 						for local_id, dof in enumerate(e.dof_list):
 							phi_vals = self.integrator.phi_vals[q_id][local_id]
 							varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
@@ -175,7 +184,7 @@ class SingleComponentVariable:
 
 		return np.linalg.norm(raw_err)
 
-	def solve_simple_system(self,f,op,disp=True,helm=False):
+	def solve_simple_system(self,f,op,disp=True,helm=False,proj=False):
 		op._build_force(f)
 
 		if helm:
@@ -210,6 +219,9 @@ class SingleComponentVariable:
 		x = x_star - alpha
 		self.x = x
 
+		if proj == True:
+			self.x = x_star
+
 		sol_vec = C.dot(x)
 
 		op.set_solution_vector(sol_vec)
@@ -232,7 +244,7 @@ class SingleComponentVariable:
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
 				self.mesh,self.integrator)
-		self.solve_simple_system(self.varfunc,self.operators['mass'],disp)
+		self.solve_simple_system(self.varfunc,self.operators['mass'],disp,proj=True)
 
 	def solve_helmholtz(self,f,k=1,disp=True):
 		if self.operators['lap'] is None:

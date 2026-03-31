@@ -329,10 +329,14 @@ class ConstraintOperator:
 
 		plt.show()
 	
-	def vis_one_constraint(self,global_id):
+	def vis_one_constraint(self,global_id,rtype=None):
 		color = 0
 		fig,ax = plt.subplots(1,1,figsize=(10,10))
-		ax.plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'k')
+		if rtype is not None:
+			if rtype=='stripe':
+				plt.plot([.25,.25,.75,.75],[0,1,1,0],'k')
+			elif rtype=='square':
+				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		val_list = []
 		assert global_id in self.ghost_list or global_id in self.corners
 		pairs = self.C_full[global_id]
@@ -371,18 +375,22 @@ class ConstraintOperator:
 			assert abs(sum(myval_list)-1)<1e-12
 		except:
 			print((ghost.x,ghost.y),sum(myval_list),len(pairs))
-		# plt.xlim(.95*minx,1.05*maxx)
-		# plt.ylim(.95*miny,1.05*maxy)
 		plt.show()
 		return val_list
 
 
-	def vis_interface(self,mylevel=None):
+	def vis_interface(self,mylevel=None,rtype=None):
 		issue_spots = []
 		color = 0
 		fig,ax = plt.subplots(2,1,figsize=(10,20))
 		val_list = []
 		full_ghost_list = self.ghost_list#+list(self.corners.keys())
+		if rtype is not None:
+			for i in range(2):
+				if rtype=='stripe':
+					ax[i].plot([.25,.25,.75,.75],[0,1,1,0],'k')
+				elif rtype=='square':
+					ax[i].plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		for ghost_id_global in full_ghost_list:
 			pairs = self.C_full[ghost_id_global]
 			ghost_id,gpatch = self._local_dof_id(ghost_id_global)
@@ -390,7 +398,6 @@ class ConstraintOperator:
 			ghost = self.patches[gpatch].get_dof(ghost_id)
 			mycolor = 'C'+str(color % 10)
 			color += 1
-			ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			myval_list = []
 			for (c,v) in pairs:
 				if len(pairs) == 1:#if v == 1:

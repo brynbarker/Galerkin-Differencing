@@ -34,16 +34,9 @@ class Patch:
 		if False:
 			self.vis()
 			self.vis_interface_eval_points()
-			check_list = []
-			for gloc in self.interface_points:
-				if gloc in check_list:
-					print(gloc)
-				else:
-					check_list.append(gloc)
-				plt.plot(gloc[0],gloc[1],'.')
 			plt.show()
 
-			print(len(self.interface_points),len(check_list))
+
 
 	def get_dof(self,non_lookup_id):
 		lookup_id = self.alt_dof[non_lookup_id]
@@ -67,7 +60,9 @@ class Patch:
 
 	def _get_lookup_id_from_loc(self,loc):
 		shftx = 0 if (self.node or self.xside) else 1/2
+		if shftx!=0 and self.ords[0]==0: shftx-=1
 		shfty = 0 if (self.node or self.yside) else 1/2
+		if shfty!=0 and self.ords[1]==0: shfty-=1
 		shft = [shftx,shfty]
 		if self.dim == 2:
 			[j,i] = [int(x/self.h+shft[ind]+self.Ls[ind]) for ind,x in enumerate(loc)]
@@ -112,10 +107,10 @@ class Patch:
 				self.periodic_pairs[lookup_id] = pair_lookup_id
 			if low:
 				self.corners.append(lookup_id)
-			
+
+		
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]
-			# print(self.level,ind,loc)
 			newel = Element(id,self.dim,ind,np.array(loc),self.h,self.ords)
 			newel.set_support(quads)
 			dof_lookup_id = self._get_lookup_id_from_loc(loc)
@@ -153,10 +148,6 @@ class Patch:
 			for j,dof_id in enumerate(self.interface_dofs):
 				dof = self.dofs[dof_id]
 				diff = (loc[0]-dof.x)/self.h
-				#if diff < -1 or diff > 2:
-				#	tmp = dof.phi(loc)
-				#	if tmp != 0:
-				#		print(tmp)
 				evals[i,j] = dof.phi(loc)
 		return evals
 
@@ -171,9 +162,6 @@ class Patch:
 				dof = self.dofs[dof_id]
 				val = dof.phi(loc)
 				ghost_arr[i,j] = val
-		# plt.matshow(ghost_arr)
-		# plt.show()
-		# print(np.linalg.eig(ghost_arr)[0],np.sum(ghost_arr,axis=0),np.sum(ghost_arr,axis=1),sep='\n')
 		return ghost_arr#np.linalg.inv(ghost_arr)
 
 	def evaluate_interface_ghosts(self):
@@ -181,17 +169,15 @@ class Patch:
 			return None
 
 		return self.check_evaluate_interface_ghosts()
-		ghosts = []
-		for loc,dof_id in zip(self.interface_points,self.interface_ghosts):
-			dof = self.dofs[dof_id]
-			val = dof.phi(loc)
-			assert abs(val)>1e-12
-			ghosts.append(val)
-		return ghosts
 
-	def vis(self):
+	def vis(self,rtype=None):
 		# fig = plt.figure(figsize=(10,10))
-		plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
+		plt.plot([0,1,1,0,0],[0,0,1,1,0],'k')
+		if rtype is not None:
+			if rtype=='stripe':
+				plt.plot([.25,.25,.75,.75],[0,1,1,0],'k')
+			elif rtype=='square':
+				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		for lookup_id in self.dofs:
 			count = 0
 			dof = self.dofs[lookup_id]
@@ -212,11 +198,16 @@ class Patch:
 		plt.show()
 
 
-	def vis_interface_eval_points(self):
+	def vis_interface_eval_points(self,rtype=None):
 		if len(self.interface_ghosts) == 0:
 			print('no ghosts on this patch')
 			return
-		plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
+		plt.plot([0,1,1,0,0],[0,0,1,1,0],'k')
+		if rtype is not None:
+			if rtype=='stripe':
+				plt.plot([.25,.25,.75,.75],[0,1,1,0],'k')
+			elif rtype=='square':
+				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		for j,(g,pt) in enumerate(zip(self.interface_ghosts,self.interface_points)):
 			gdof = self.dofs[g]
 			color = 'C'+str(j%10)

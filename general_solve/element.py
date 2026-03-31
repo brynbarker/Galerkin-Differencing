@@ -1,5 +1,8 @@
 class Element:
 	def __init__(self,ID,dim,inds,loc,h,ords):#=[3,3]):
+		for index in range(dim):
+			if ords[index] == 0:
+				loc[index] -= h/2
 		self.ID = ID
 		self.dim = dim
 		self.h = h

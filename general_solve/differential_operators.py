@@ -36,8 +36,6 @@ class DifferentialOperator:
 					if quad:
 						test_ids = test_e.get_dof_ids(id)
 						for trial_id,dof in enumerate(e.dof_list):
-							# if dof.ID == 76:
-								# print(id,trial_id,test_ids,self.lookup[id][trial_id])
 							Ar += [dof.ID]*len(test_ids)
 							Ac += test_ids
 							Ad += list(self.lookup[id][trial_id])

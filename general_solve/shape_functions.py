@@ -3,7 +3,7 @@ import numpy as	np
 import matplotlib.pyplot as	plt
 
 def phi0(x,h):
-	if 0 <= x <= h:
+	if -h/2 <= x <= h/2:
 		return 1
 	return 0
 
@@ -90,8 +90,8 @@ def	phi3_dx(x,h):
 	else:
 		return 0
 
-func_map = {1:phi1,2:phi2,3:phi3}
-dx_map = {1:phi1_dx,2:phi2_dx,3:phi3_dx}
+func_map = {0:phi0,1:phi1,2:phi2,3:phi3}
+dx_map = {0:phi0_dx,1:phi1_dx,2:phi2_dx,3:phi3_dx}
 
 def	phi_2d(ords,x,y,h):
 	comp_0 = func_map[ords[0]](x,h)
