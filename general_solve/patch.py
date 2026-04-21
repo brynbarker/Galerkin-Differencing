@@ -29,6 +29,10 @@ class Patch:
 		self.level = level
 		self.corners = []
 
+		self.size = len(self.info[0][0])
+		self.row_sum = np.zeros((self.lens[1],self.size))
+		self.col_sum = np.zeros((self.lens[0],self.size))
+
 		self._setup()
 
 		if False:
@@ -96,9 +100,11 @@ class Patch:
 	def _setup(self):
 		d_info,e_info,i_info = self.info
 
-		for id in range(len(d_info[0])):
+		for id in range(self.size):
 			ind,loc,per,bc,low = d_info[0][id],d_info[1][id],d_info[2][id],d_info[3][id],d_info[4][id]
 			newdof = DoF(id,self.dim,ind,loc,self.h,self.ords)
+			self.row_sum[newdof.i,id] = 1
+			self.col_sum[newdof.j,id] = 1
 			lookup_id = self._get_lookup_id_from_ind(ind)
 			self.dofs[lookup_id] = newdof
 			self.alt_dof[id] = lookup_id
@@ -116,6 +122,8 @@ class Patch:
 			strt = dof_lookup_id-self.Ls[0]-self.Ls[1]*self.lens[0]#1-self.xlen
 			newel.add_dofs(strt,self.lens[0])
 			el_lookup_id = self._get_lookup_id_from_ind(ind)
+			check_id = self._get_lookup_id_from_loc(loc)
+			assert(check_id==el_lookup_id)
 			self.elements[el_lookup_id] = newel
 			self.alt_el[id] = el_lookup_id
 

@@ -234,7 +234,12 @@ class Mesh:
 						c_vals[level].append(U[global_id])
 						locs[level].append(dof.loc)
 
-				x,y = np.array(locs[level]).T
+				tmp = np.array(locs[level]).T
+				if tmp.size > 0:
+					x,y = tmp
+					print(len(x),len(y),len(c_vals))
+				else:
+					x,y = [],[]
 				if log:
 					logvals = [np.log(cval) for cval in c_vals[level]]
 					plot = ax[level].scatter(x,y,c=logvals,cmap='jet',zorder=1)	
@@ -244,6 +249,7 @@ class Mesh:
 
 				ax[level].set_aspect('equal')
 			except:
+				print(uhoh)
 				pass
 
 		plt.show()

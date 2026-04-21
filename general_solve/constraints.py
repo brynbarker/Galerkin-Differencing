@@ -26,7 +26,6 @@ class ConstraintOperator:
 		self._setup_boundary()
 		self._construct_matrix()
 
-
 	def _global_dof_id(self,dof_id,p_id):
 		# input dof id relative to patch NOT LOOKUP IDS
 		if isinstance(dof_id,list):
@@ -35,6 +34,34 @@ class ConstraintOperator:
 				output.append(self._global_dof_id(d_id,p_id))
 			return output
 		return dof_id + self.dof_id_shift*p_id
+
+	def construct_null_proj_op(self,comp):
+		proj_ops = []
+		split = len(self.true_dofs)
+		for index,dof_id in enumerate(self.true_dofs):
+			if dof_id >= self.dof_id_shift:
+				split = index
+				break
+
+		sep_true_dofs = [self.true_dofs[:split],self.true_dofs[split:]]
+		for level in range(2):
+			p = self.mesh.patches[level]
+			if len(p.dofs)>0:
+				full_sum_arr = p.col_sum if comp else p.row_sum
+
+				sum_arr = full_sum_arr[:,sep_true_dofs[level]]
+
+				normed_sum_arr = sum_arr / sum_arr.sum(axis=1).reshape((-1,1))
+				true_size = len(sep_true_dofs[level])
+
+				proj_op = np.eye(true_size) - sum_arr.T @ normed_sum_arr
+			else:
+				proj_op = None
+
+			proj_ops.append(proj_op)
+		return proj_ops, split
+
+
 
 	def _local_dof_id(self,dof_id):
 		# input dof id for full system NOT LOOKUP IDS
@@ -92,105 +119,9 @@ class ConstraintOperator:
 				self.Id[per_id] = 1
 		return
 
-	def _locate_corners(self):
-		if self.size == self.dof_id_shift:
-			return # uniform grid
-
-		# this is for order 3 and 2
-		extraps = {3:[4,-6,4,-1], 2:[3,-3,1]}
-		extraps = {3:[3,-3,1]}
-		# extraps = [2,-1]
-
-		def exact_corners(x,y):
-			xlo = x < .25
-			xhi = x > .75
-
-			ylo = y < .25
-			yhi = y > .75
-
-			if not ((xlo or xhi) and (ylo or yhi)):
-				return False
-
-			return True
-
-
-		def corner_sides(x,y):
-			xlo = x <= .25
-			xhi = x >= .75
-
-			ylo = y <= .25
-			yhi = y >= .75
-
-			xequal = x==.25 or x==.75
-			yequal = y==.25 or y==.75
-			if not xequal and not yequal:
-				return False,None,False
-			if xequal and yequal:
-				return False,None,False
-
-			if exact_corners(x,y):
-				print(x,y)
-				return False,None,False
-			if not ((xlo or xhi) and (ylo or yhi)):
-				print('false alarm')
-				return False,None,False
-
-			return True,[xhi,yhi],xequal
-
-			return True, [xhi,yhi] # 0 if low and 1 if hi
-
-		self.corners = {}
-
-		# we also want to store all dofs that corners depend on
-		corner_deps = []
-
-		for p_id,p in enumerate(self.patches):
-			corner_dofs = [p.dofs[lookup] for lookup in p.corners]
-
-			# we have four corners, let's just do this manually for now
-			for c_dof in corner_dofs:
-				check, sides, line = corner_sides(c_dof.x,c_dof.y)
-				if check:
-					start_inds = [c_dof.j,c_dof.i]
-					extrap_inds = {0:[],1:[]}
-					for dim,(start,side) in enumerate(zip(start_inds,sides)):
-						sgn = -1 if side else 1
-						for step in range(p.ords[dim]+1):
-							extrap_inds[dim].append(int(start+sgn*(step+1)))
-					
-					dof_list, weight_list = [],[]
-					for weight,index in zip(extraps[p.ords[line]],extrap_inds[line]):
-						i = index if line else c_dof.i
-						j = index if not line else c_dof.j
-						dof_lookup_id = p._get_lookup_id_from_ind([i,j])
-						dof_local_id = p.dofs[dof_lookup_id].ID
-						global_id = self._global_dof_id(dof_local_id,p_id)
-
-						dof_list.append(global_id)
-						weight_list.append(weight)
-					# for x_weight,j in zip(extraps[p.ords[0]],extrap_inds[0]):
-					# # for x_weight,j in zip(extraps,extrap_inds[0]):
-					# 	for y_weight,i in zip(extraps[p.ords[1]],extrap_inds[1]):
-					# 	# for y_weight,i in zip(extraps,extrap_inds[1]):
-					# 		weight = x_weight*y_weight
-					# 		dof_lookup_id = p._get_lookup_id_from_ind([i,j])
-					# 		dof_local_id = p.dofs[dof_lookup_id].ID
-					# 		global_id = self._global_dof_id(dof_local_id,p_id)
-
-					# 		dof_list.append(global_id)
-					# 		weight_list.append(weight)
-					
-					c_global_id = self._global_dof_id(c_dof.ID,p_id)
-					self.corners[c_global_id] = (dof_list,weight_list)
-					corner_deps += dof_list
-
-		self.corner_deps = list(set(corner_deps))
-
 
 
 	def _setup_interface(self):
-
-		self._locate_corners()
 
 		if self.gpatch is None:
 			return
@@ -203,8 +134,6 @@ class ConstraintOperator:
 				else:
 					to_return.append(global_id)
 			return to_return
-
-		corner_mods = {}
 
 		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
 		ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
@@ -233,38 +162,6 @@ class ConstraintOperator:
 				self.Cr += [g_dof_id]*sum(mask)
 				self.Cc += local_dofs
 				self.Cd += list(sgn*local_vals)
-
-				if g_dof_id in self.corner_deps:
-					if g_dof_id not in corner_mods:
-						corner_mods[g_dof_id] = [[],[]]
-					corner_mods[g_dof_id][0] += local_dofs
-					corner_mods[g_dof_id][1] += list(sgn*local_vals)
-
-		# now let's try setting the corners
-		# for corner_id in self.corners:
-		# 	if corner_id in self.ghost_list:
-		# 		print('false alarm, corner is already a ghost')
-		# 		pass
-		# 	else:
-		# 		print('count to eight')
-		# 		self.Id[corner_id] = 1
-		# 		dof_list,weight_list = self.corners[corner_id]
-		# 		for dof_id,weight in zip(dof_list,weight_list):
-
-		# 			if dof_id in corner_mods:
-		# 				print('\t count to four')
-		# 				# this is a little messy
-		# 				mod_dofs,mod_vals = corner_mods[dof_id]
-		# 				print(len(mod_dofs))
-		# 				for mod_dof_id,mod_val in zip(mod_dofs,mod_vals):
-		# 					self.Cr.append(corner_id)
-		# 					self.Cc.append(mod_dof_id)
-		# 					self.Cd.append(mod_val*weight)
-		# 			else:
-		# 				print('shouldnt get here')
-		# 				self.Cr.append(corner_id)
-		# 				self.Cc.append(dof_id)
-		# 				self.Cd.append(weight)
 
 	def _construct_matrix(self):
 		self.true_dofs = list(np.where(self.Id==0)[0])
@@ -338,7 +235,7 @@ class ConstraintOperator:
 			elif rtype=='square':
 				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		val_list = []
-		assert global_id in self.ghost_list or global_id in self.corners
+		assert global_id in self.ghost_list
 		pairs = self.C_full[global_id]
 		ghost_id,gpatch = self._local_dof_id(global_id)
 		assert gpatch==1
@@ -384,7 +281,7 @@ class ConstraintOperator:
 		color = 0
 		fig,ax = plt.subplots(2,1,figsize=(10,20))
 		val_list = []
-		full_ghost_list = self.ghost_list#+list(self.corners.keys())
+		full_ghost_list = self.ghost_list
 		if rtype is not None:
 			for i in range(2):
 				if rtype=='stripe':

@@ -204,10 +204,6 @@ class SingleComponentVariable:
 
 		f_proj = sum(rhs)/rhs.size
 		if abs(f_proj) > 1e-12:
-<<<<<<< HEAD
-=======
-			# print('f in null')
->>>>>>> 62151f07968275c89c19cadc3f45c6ae5a308557
 			rhs -= f_proj
 
 		try:
@@ -295,6 +291,8 @@ class SingleComponentVariable:
 	def vis_dof_sol(self,sol_vec,err=False,true_list=None,log=True):
 		if err:
 			sol_vec = abs(self.true_sol_vec-sol_vec)
+		else:
+			log = False
 		self.mesh.vis_dof_sol(sol_vec,true_list=true_list,log=log)
 
 	def setup_laplace(self,mu=1):
@@ -354,10 +352,12 @@ class SingleComponentVariable:
 		
 		return np.linalg.norm(C.dot(lhs-rhs)[self.view_list])
 
-	def setup_divergence(self,l_dphivals,el_map,test_size):
+	def setup_divergence(self,l_dphivals,el_map,
+					     local_test_size,test_sizes):
 		if self.operators['div'] is None:
 			self.operators['div'] = DivergenceOperator(
 						self.mesh,self.integrator,
-					    l_dphivals,el_map,test_size)
+					    l_dphivals,el_map,
+						local_test_size,test_sizes)
 		self.operators['div']._build_system()
 		return self.operators['div']

@@ -22,12 +22,15 @@ def gauss(f,a,b,c,d,n):
 class Pressure(SingleComponentVariable):
 	def __init__(self,N,dim=2,dofloc='cell',
 			  rtype='uniform',rname=None,var=None,
-			  ords=[1,1],qpn=3):
+			  ords=[0,0],qpn=None):
+		if qpn is None: qpn = max(ords)+2
 		super().__init__(N,dim,dofloc,rtype,rname,var,ords,qpn)
 
-	def compute_divergence(self,l_dphivals,test_size,el_map):
+	def compute_divergence(self,l_dphivals,local_test_size,
+						global_test_sizes,el_map):
 		self.div_op = self.setup_divergence(
-							  l_dphivals,el_map,test_size)
+							  l_dphivals,el_map,
+							  local_test_size,global_test_sizes)
 		# self.div_op = DivergenceOperator(self.mesh,self.integrator,
 								#    l_dphivals,el_map,test_size)
 		# self.div_op._build_system()
@@ -45,7 +48,7 @@ class Pressure(SingleComponentVariable):
 class Velocity(MultiComponentVariable):
 	def __init__(self, N, dim=2, doflocs=['xside','yside'], 
 			  rtype='uniform', rname=None, 
-			  vars=[None,None], ords=[1,1], qpn=None,mu=1):
+			  vars=[None,None], ords=[1,0], qpn=None,mu=1):
 		if qpn is None: qpn = max(ords)+1
 		super().__init__(N, dim, doflocs, 
 				   rtype, rname, vars, ords, qpn)
@@ -75,7 +78,11 @@ class Velocity(MultiComponentVariable):
 class StokesFlow:
 	def __init__(self,N,dim=2,rtype='uniform',
 				 rname=None,vars=[None,None,None],
-				 ords=[1,1,1],qpn=3,mu=1):
+				 ords=None,ord=1,qpn=None,mu=1):
+		if ords is None:
+			ords = [ord,ord-1,ord-1]
+		self.ord = max(ords)
+		if qpn is None: qpn = max(ords)+1
 		self.N = N
 		self.dim = dim
 		self.pressure = Pressure(N,dim,qpn=qpn,rtype=rtype,
@@ -128,41 +135,66 @@ class StokesFlow:
 				  		len(self.velocity.v.constraints.true_dofs),
 						len(self.pressure.constraints.true_dofs)]
 
-		shift_vecs = np.eye(self.dim)
+
 		d_element_map = {}
-		for p_id,patch in enumerate(self.pressure.mesh.patches):
-			u_patch = self.velocity.u.mesh.patches[p_id]
-			v_patch = self.velocity.v.mesh.patches[p_id]
-			for e_pr in patch.elements.values():
+		p0 =  max(self.pressure.ords) == 0
+		
+		if p0:
+			pels = self.pressure.mesh.patches[0].elements
+			uels = self.velocity.u.mesh.patches[0].elements
+			vels = self.velocity.v.mesh.patches[0].elements
+			for peid,ueid,veid in zip(pels,uels,vels):
+				pe = pels[peid]
+				ue = uels[ueid]
+				ve = vels[veid]
+
 				new_el = PseudoElement()
-				for shift_dim,vel_patch in enumerate([u_patch,v_patch]):
-					shift_vec = shift_vecs[shift_dim]*patch.h/2
-					for ind,scale in enumerate([-1,1]):
-						new_loc = e_pr.loc + scale*shift_vec+1e-6
-						# if not (0<= new_loc[shift_dim]<=1):
-						try:
-							e_vel = vel_patch._get_element_from_loc(new_loc)
-							new_el.add_dof_ids(shift_dim,ind,e_vel.dof_ids)
-						except:
-							new_el.add_dof_ids(shift_dim,ind)
-				d_element_map[e_pr] = new_el
+				new_el.set_const()
+				for q_id in range(4):
+					for dim,vel_el in enumerate([ue,ve]):
+						new_el.add_dof_ids(dim,q_id,vel_el.dof_ids)
+
+				d_element_map[pe] = new_el
+
+		else:
+			shift_vecs = np.eye(self.dim)
+			tol = 1e-6
+			for p_id,patch in enumerate(self.pressure.mesh.patches):
+				u_patch = self.velocity.u.mesh.patches[p_id]
+				v_patch = self.velocity.v.mesh.patches[p_id]
+				for e_pr in patch.elements.values():
+					old_loc = e_pr.loc+tol
+					new_el = PseudoElement()
+					for shift_dim,vel_patch in enumerate([u_patch,v_patch]):
+						shift_vec = shift_vecs[shift_dim]*patch.h/2
+						for ind,scale in enumerate([-1,1]):
+							new_loc = old_loc + scale*shift_vec
+							# if not (0<= new_loc[shift_dim]<=1):
+							try:
+								e_vel = vel_patch._get_element_from_loc(new_loc)
+								new_el.add_dof_ids(shift_dim,ind,e_vel.dof_ids)
+							except:
+								new_el.add_dof_ids(shift_dim,ind)
+					d_element_map[e_pr] = new_el
+		self.element_map = d_element_map
 
 		l_dphi_vals = [self.velocity.u.integrator.dphi_vals,
 					   self.velocity.v.integrator.dphi_vals]
 		self.pressure.compute_divergence(l_dphi_vals,
 								   self.velocity.u.integrator.prod,
-								   d_element_map)
+								   (usize,vsize),d_element_map)
 
 		self.divergence = self.pressure.div_op.spA
 
 
 	def _split_vec(self,vec):
 		if vec.size == sum(self.sizes):
-			uv_split = self.sizes[-1]
+			uv_split = self.sizes[0]
 			vp_split = sum(self.sizes[:-1])
 		else:
-			uv_split = self.C_sizes[-1]
+			uv_split = self.C_sizes[0]
 			vp_split = sum(self.C_sizes[:-1])
+
 
 		U = vec[:uv_split]
 		V = vec[uv_split:vp_split]
@@ -171,7 +203,8 @@ class StokesFlow:
 
 
 	def _merge_vec(self,vecs):
-		if vecs[0].size in self.sizes:
+		full_size = sum([v.size for v in vecs])
+		if full_size == sum(self.sizes):
 			vec = np.zeros(sum(self.sizes))
 			uv_split = self.sizes[-1]
 			vp_split = sum(self.sizes[:-1])
@@ -211,9 +244,38 @@ class StokesFlow:
 		Z = np.hstack(zlist).T
 		self.mean_values = [sum(z.flatten()) for z in zlist]
 		self.zTc = self.C.T.dot(Z)
+
+
 		return
 
 		# need to take care of the nullspace
+
+	def _compute_mac_null_projection(self,vecs):
+		new_vecs = []
+		vars = [self.velocity.u,self.velocity.v]
+		for comp in range(2):
+			vec = vecs[comp]
+			var = vars[comp]
+			levels = np.split(vec,np.array([var.mesh.dof_id_shift]))
+			projections = []
+
+			for p_id,level in enumerate(levels):
+				if len(level) > 0:
+					p = var.mesh.patches[p_id]
+					sum_arr = p.col_sum if comp else p.row_sum
+					count_vec = p.col_counts if comp else p.row_counts
+
+					sums = sum_arr @ level
+
+					means = sums / count_vec
+
+					proj = sum_arr.T @ means
+					projections.append(level-proj)
+
+			new_vecs.append(np.hstack(projections))
+
+		new_vecs.append(vecs[-1])
+		return new_vecs				
 
 	def solve(self,forces,disp=True):
 		self._build_force(forces)
@@ -227,21 +289,50 @@ class StokesFlow:
 			if abs(f_proj) > 1e-12: 
 				l_rhs[i] = l_rhs[i] - f_proj
 
-		rhs = self._merge_vec(l_rhs)
+		if self.ord == 1:
+			u_proj_ops,usplt = self.velocity.u.constraints.construct_null_proj_op(0)
+			v_proj_ops,vsplt = self.velocity.v.constraints.construct_null_proj_op(1)
+
+			proj_ops,splits = [u_proj_ops,v_proj_ops],[usplt,vsplt]
+			for i in range(2):
+				tmp = l_rhs[i]
+				levels = [tmp[:splits[i]]]
+				if splits[i] < len(tmp):
+					levels.append(tmp[splits[i]:])
+
+				projs = []
+				for j,vec in enumerate(levels):
+					projs.append(proj_ops[i][j]@vec)
+				l_rhs[i] = np.vstack(projs)
+
+		self.rhs = self._merge_vec(l_rhs)
 
 		# x_star, conv = sla.gmres(self.sys,rhs,rtol=1e-13)
 		# assert conv==0
-		x_star = np.linalg.solve(self.sys.todense(),rhs)
+		self.x_star = np.linalg.solve(self.sys.todense(),self.rhs)
 
-		l_x = self._split_vec(x_star)
+		l_x = self._split_vec(self.x_star)
 		l_zTc = self._split_vec(self.zTc)
 		for i in range(3):
 			alpha = (l_zTc[i].T@l_x[i]) / self.mean_values[i]
 			l_x[i] = l_x[i] - alpha
-		x = self._merge_vec(l_x)
 
-		sol_vec = self.C.dot(x)
+			if self.ord==1 and i<2:
+				tmp = l_x[i]
+				levels = [tmp[:splits[i]]]
+				if splits[i] < len(tmp):
+					levels.append(tmp[splits[i]:])
+
+				projs = []
+				for j,vec in enumerate(levels):
+					projs.append(proj_ops[i][j]@vec)
+				l_x[i] = np.vstack(projs)
+
+		self.x = self._merge_vec(l_x)
+
+		sol_vec = self.C.dot(self.x)
 		[U,V,P] = self._split_vec(sol_vec)
+		self.sol_vecs = [U,V,P]
 		self.sol_vec=sol_vec
 
 		vel_L2_errs, vel_Linf_errs = self.velocity.compute_errors(U,V)

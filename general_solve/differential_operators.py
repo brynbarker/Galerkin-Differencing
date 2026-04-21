@@ -39,7 +39,7 @@ class DifferentialOperator:
 							Ar += [dof.ID]*len(test_ids)
 							Ac += test_ids
 							Ad += list(self.lookup[id][trial_id])
-			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(test_size,size))
+			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,test_size))
 			self.blocks.append(spA)
 
 	def _build_system(self,scale0=1,scale1=1):
@@ -115,7 +115,7 @@ class ProjectionOperator(DifferentialOperator):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
 class DerivativeOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,el_map,test_size,comp):
+	def __init__(self,mesh,integrator,el_map,test_sizes,comp):
 		super().__init__(mesh,integrator)
 
 		def el_map_comp(e):
@@ -124,7 +124,7 @@ class DerivativeOperator(DifferentialOperator):
 			return new_e
 
 		self.element_map = el_map_comp
-		self.test_size = test_size
+		self.test_sizes = test_sizes
 		self.comp = comp
 
 		scales = [p.h for p in self.mesh.patches]
@@ -141,13 +141,14 @@ class DerivativeOperator(DifferentialOperator):
 
 
 class DivergenceOperator:
-	def __init__(self,mesh,integrator,l_dphivals,el_map,test_size):
+	def __init__(self,mesh,integrator,l_dphivals,el_map,
+			     local_test_size,test_sizes):
 		self.diff_ops = []
 
-		self.pux = DerivativeOperator(mesh,integrator,el_map,test_size,0)
-		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_size,1)
+		self.pux = DerivativeOperator(mesh,integrator,el_map,test_sizes[0],0)
+		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_sizes[1],1)
 
-		self.lookup = integrator.get_div_vals(l_dphivals,test_size)
+		self.lookup = integrator.get_div_vals(l_dphivals,local_test_size)
 		self.pux.set_lookup(self.lookup[0])
 		self.pvy.set_lookup(self.lookup[1])
 

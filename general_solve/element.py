@@ -85,9 +85,13 @@ class PseudoElement:
 		self.dof_id_lists = {0:{},1:{}}
 
 		self.comp = None
+		self.p0 = False
 
 	def set_comp(self,comp):
 		self.comp = comp
+
+	def set_const(self):
+		self.p0 = True
 
 	def add_dof_ids(self,dim,q_id,dof_ids=None):
 		self.dof_id_lists[dim][q_id] = dof_ids
@@ -95,6 +99,9 @@ class PseudoElement:
 	def get_dof_ids(self,q_id,dim=None):
 		if dim is None:
 			dim = self.comp
+
+		if self.p0:
+			return self.dof_id_lists[dim][q_id]
 		if dim == 0:
 			return self.dof_id_lists[dim][q_id%2]
 		else:

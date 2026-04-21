@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pickle
+import copy
 from general_solve import shape_functions
 
 class Integrator:
@@ -26,6 +27,7 @@ class Integrator:
 			self.id_map = {ID:[int(ID/chop)%chop2,ID%chop,int(ID/chop/chop2)] for ID in range(total)}
 		self.phi,self.dphi = shape_functions._get_phi_refs(self.ords,self.dim)
 
+		self.quad_ref_eval_locs = {i:[] for i in range(4)}
 		self._compute_quad_bounds()
 		self._get_phi_and_dphi_vals()
 		# self._get_k_vals()
@@ -40,10 +42,13 @@ class Integrator:
 				[0,.5,0,.5,.5,1],[.5,1,0,.5,.5,1],
 				[0,.5,.5,1,.5,1],[.5,1,.5,1,.5,1]]
 
+		self.quad_bounds_shifted = copy.deepcopy(self.quad_bounds)
+
 	def _get_phi_and_dphi_vals(self):
 		self.phi_vals = {}
 		self.dphi_vals = {}
-		for quad_id,bounds in enumerate(self.quad_bounds):
+		for quad_id,bounds in enumerate(self.quad_bounds_shifted):
+			self.quad_ref_eval_locs[quad_id] = {}
 			self.phi_vals[quad_id] = []
 			self.dphi_vals[quad_id] = []
 
@@ -54,6 +59,8 @@ class Integrator:
 			for test_id in range(self.prod):
 				test_ind = self.id_map[test_id]
 
+				xshft,yshft = shape_functions.get_phi_2d_ref_xys(self.ords,1,test_ind)
+				self.quad_ref_eval_locs[quad_id][test_id] = self.get_quad_eval_locs(bounds,xshft,yshft)
 				phi_test = lambda x,y: self.phi(x,y,1,test_ind)
 				dphi_test = lambda x,y: self.dphi(x,y,1,test_ind)
 
@@ -109,7 +116,10 @@ class Integrator:
 			with open(fname,'rb') as handle:
 				vals = pickle.load(handle)
 		except:
-			quad_maps = {0:[2,1,3],1:[3,0,2],2:[0,3,1],3:[1,2,0]}
+			if ord_string == "100":
+				quad_maps = {i:[i]*3 for i in range(4)}
+			else:
+				quad_maps = {0:[2,1,3],1:[3,0,2],2:[0,3,1],3:[1,2,0]}
 			vals = {0:{},1:{}}
 			for quad_id in range(4):
 				u_id,v_id,p_id = quad_maps[quad_id]
@@ -156,6 +166,18 @@ class Integrator:
 		except:
 			self._get_div_vals(uv_dphi_vals,uv_size)
 			return self.div_vals
+
+	def get_quad_eval_locs(self,bounds,xshft,yshft):
+		a,b,c,d = bounds
+		xmid, ymid = (a+b)/2, (c+d)/2
+		xscale, yscale = (b-a)/2, (d-c)/2
+		locs = []
+		for j in range(self.qpn):
+			for i in range(self.qpn):
+				xinput = xscale * self.points[j] + xmid
+				yinput = yscale * self.points[i] + ymid
+				locs.append((xinput+xshft,yinput+yshft))
+		return locs
 
 	def _evaluate_func_at_points(self,func,bounds,arr=False):
 		if self.dim == 2:

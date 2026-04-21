@@ -172,6 +172,12 @@ def	_get_phi_refs(ords,dim):
 		my_dphi	= lambda x_ref,y_ref,z_ref,h,ind:	dphi_3d_ref(ords,x_ref,y_ref,z_ref,h,ind)
 		return my_phi, my_dphi
 
+def	get_phi_2d_ref_xys(ords,h,ind):
+	i,j	= ind
+	xL,	yL = int(ords[0]/2), int(ords[1]/2)
+	xshft,yshft	= h*(xL-j),h*(yL-i)
+	return xshft,yshft
+
 #def phi3_2d(x,y,h):
 	#return	phi3(x,h)*phi3(y,h)
 
