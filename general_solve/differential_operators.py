@@ -58,19 +58,33 @@ class DifferentialOperator:
 
 		myFs = []
 
-		for patch in self.mesh.patches:
+		self.d_dofid_to_e_list = {0:{},1:{}}
+		for p_id,patch in enumerate(self.mesh.patches):
 			num_dofs = len(patch.dofs)
 			F = np.zeros(num_dofs)
 
+
 			for e in patch.elements.values():
 				vol = (e.h/2)**self.dim
-				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
+				disp = False#patch.h==self.mesh.h and e.ID == 0
+				if disp: print(e.bounds)
+				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds,disp=disp)
+				if disp: print(fvals)
 				for test_id,dof in enumerate(e.dof_list):
+					if dof.ID in self.d_dofid_to_e_list[p_id]:
+						self.d_dofid_to_e_list[p_id][dof.ID].append(e.ID) 
+					else:
+						self.d_dofid_to_e_list[p_id][dof.ID] = [e.ID]
+					if disp: print('\n\t',dof.ID,(dof.x,dof.y))
+					if disp: self.integrator._evaluate_func_on_element(ffunc,e.bounds,test_func=dof.phi)
 					for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
 						if quad:
 							phi_val = self.integrator.phi_vals[quad_id][test_id]
+							if disp: print('\t\t',phi_val.flatten())
 							val = self.integrator._compute_product_integral(phi_val,f_val,vol)
+							if disp: print(val)
 							F[dof.ID] += val
+					if disp: print(F[dof.ID])
 			myFs.append(F)
 
 		self.F = np.hstack(myFs)

@@ -60,7 +60,7 @@ class MultiComponentVariable:
 class SingleComponentVariable:
 	def __init__(self,N,dim=2,dofloc='node',
 			  rtype='uniform',rname=None,var=None,
-			  ords=[1,1],qpn=None):
+			  ords=[1,1],qpn=None,ghost_off=False):
 		if qpn is None: qpn = max(ords)+1
 		
 		ord_incomp = False
@@ -79,7 +79,7 @@ class SingleComponentVariable:
 		self.integrator = Integrator(qpn,dim,ords)
 		self.ords = ords
 
-		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname)
+		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname,ghost_off=ghost_off)
 		self.h = self.mesh.h
 
 		self.constraints = ConstraintOperator(self.mesh)
@@ -202,9 +202,34 @@ class SingleComponentVariable:
 
 		rhs = C.T.dot(op.F)
 
-		f_proj = sum(rhs)/rhs.size
-		if abs(f_proj) > 1e-12:
-			rhs -= f_proj
+		ns = scla.null_space(lhs.todense())
+		for v in ns.T:
+			proj_scale = v @ rhs
+			if abs(proj_scale) > 1e-12:
+				# print('rhs in nullspace',proj_scale)
+				rhs -= proj_scale*v
+
+
+		if not proj:
+			# alpha = (self.zTc @ rhs) / self.mean_value
+			# print('presolve',alpha)
+				
+			# rhs -= alpha
+			if False:#sum(self.ords) == 1:
+				comp = self.ords.index(1)
+				print(comp)
+				proj_ops,splt = self.constraints.construct_null_proj_op(comp)
+				rhs_parts = np.split(rhs,np.array([self.constraints.true_split]))
+				new_parts = []
+				for level,part in enumerate(rhs_parts):
+					if len(part) > 0:
+						new_parts.append(proj_ops[level] @ part)
+
+				rhs = np.hstack(new_parts)
+
+		self.lhs = lhs.todense()
+		self.rhs = rhs
+		# print(np.linalg.norm(self.lhs@res))
 
 		try:
 			x_star,conv = sla.cg(lhs,rhs,rtol=1e-12)
@@ -214,15 +239,33 @@ class SingleComponentVariable:
 			print('krylov issue')
 			self.totest = [lhs,rhs]
 
-		alpha = (self.zTc @ x_star) / self.mean_value
+		for v in ns.T:
+			proj_scale = v @ x_star
+			if abs(proj_scale) > 1e-12:
+				print(proj_scale)
+				x_star -= proj_scale*v
 
-		x = x_star - alpha
-		self.x = x
-
-		if proj == True:
+		if proj:
 			self.x = x_star
+		else:
+			alpha = (self.zTc @ x_star) / self.mean_value
+			print(alpha)
+				
+			self.x = x_star - alpha
 
-		sol_vec = C.dot(x)
+			# x_parts =  np.split(x,np.array([self.constraints.true_split]))
+			# new_parts = []
+			# for part in x_parts:
+			# 	if len(part) > 0:
+			# 		x_proj = sum(part)/part.size
+			# 		print(x_proj)
+			# 		if abs(x_proj) > 1e-12:
+			# 			new_parts.append((part-x_proj).flatten())
+			# 		else:
+			# 			new_parts.append(part.flatten())
+			# self.x = np.hstack(new_parts)
+
+		sol_vec = C.dot(self.x)
 
 		op.set_solution_vector(sol_vec)
 		err = self.error(sol_vec)
@@ -238,13 +281,13 @@ class SingleComponentVariable:
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
 				self.mesh,self.integrator,mu=mu)
-		self.solve_simple_system(f,self.operators['lap'],disp)
+		return self.solve_simple_system(f,self.operators['lap'],disp)
 
 	def solve_projection(self,disp=True):
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
 				self.mesh,self.integrator)
-		self.solve_simple_system(self.varfunc,self.operators['mass'],disp,proj=True)
+		return self.solve_simple_system(self.varfunc,self.operators['mass'],disp,proj=True)
 
 	def solve_helmholtz(self,f,k=1,disp=True):
 		if self.operators['lap'] is None:

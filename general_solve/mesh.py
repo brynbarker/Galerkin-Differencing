@@ -55,7 +55,8 @@ class PseudoMesh:
 			self.fine_quads.append(my_quads)
 
 class Mesh:
-	def __init__(self,N,dim,ords,dofloc='node',rtype='uniform',rname=None):#,ords=[3,3]):
+	def __init__(self,N,dim,ords,dofloc='node',
+			     rtype='uniform',rname=None,ghost_off=False):#,ords=[3,3]):
 		self.N = N 
 		self.h = 1/N
 		self.dim = dim
@@ -67,9 +68,9 @@ class Mesh:
 
 		coarse_info = self.refinement.get_coarse_info()
 		fine_info = self.refinement.get_fine_info()
-		coarse_patch = Patch(N,dim,coarse_info,dofloc,ords,level=0)#,ords=ords)
-		fine_patch = Patch(N,dim,fine_info,dofloc,ords,level=1)#,ords=ords)
-		self.patches = [coarse_patch,fine_patch]#{0:coarse_patch, 1:fine_patch}
+		coarse_patch = Patch(N,dim,coarse_info,dofloc,ords,level=0)
+		fine_patch = Patch(N,dim,fine_info,dofloc,ords,level=1,ghost_off=ghost_off)
+		self.patches = [coarse_patch,fine_patch]
 
 		self.dof_id_shift = len(coarse_patch.dofs)
 
@@ -231,13 +232,16 @@ class Mesh:
 					dof = self.patches[level].dofs[id]
 					global_id = dof.ID+id_shift*level
 					if true_list is None or global_id in true_list:
-						c_vals[level].append(U[global_id])
+						if true_list is None: u_val = U[global_id]
+						else:
+							true_index = true_list.index(global_id)
+							u_val = U[true_index]
+						c_vals[level].append(u_val)
 						locs[level].append(dof.loc)
 
 				tmp = np.array(locs[level]).T
 				if tmp.size > 0:
 					x,y = tmp
-					print(len(x),len(y),len(c_vals))
 				else:
 					x,y = [],[]
 				if log:

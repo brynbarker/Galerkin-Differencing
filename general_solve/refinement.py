@@ -153,7 +153,12 @@ class RefinementPattern:
 		extraL, extraR = [],[]
 		for	i in range(self.dim):
 			same = (i==0 and self.yside) or (i==1 and self.xside)
-			if self.cell or same:
+			if self.ords[i] == 0:
+				offsets = [-1,1,-1,1]
+				i_edges[i] = [val+3*H/4*s for (val,s) in zip(edges[i],offsets)]
+				extraL.append(0)
+				extraR.append(0)
+			elif self.cell or same:
 				i_edges[i] = [val for val in edges[i]]
 				extraL.append(0)
 				extraR.append(0)
@@ -202,17 +207,17 @@ class RefinementPattern:
 						self.b_data[L][0].append(periodic([x,y]))
 						self.b_data[L][1].append(dirichlet([j,i]))
 						self.i_data[L][2].append(low_support([x,y]))
+						if interface([x,y]):
+							self.i_data[L][0].append([i,j])
+							if ghost([x,y]):
+								nearest_point =	self._closest_point([x,y],H)
+							else:
+								nearest_point =	None
+							self.i_data[L][1].append(nearest_point)
 					if echeck([x,y]):
 						self.e_data[L][0].append([i,j])
 						self.e_data[L][1].append([x,y])
 						self.e_data[L][2].append(self._get_el_quads([x,y],H,quad))
-					if interface([x,y]):
-						self.i_data[L][0].append([i,j])
-						if ghost([x,y]):
-							nearest_point =	self._closest_point([x,y],H)
-						else:
-							nearest_point =	None
-						self.i_data[L][1].append(nearest_point)
 
 		#if self.dim	== 3:
 		#	xdom,ydom,zdom = doms
@@ -377,7 +382,8 @@ class StripeRefinement(RefinementPattern):
 		low_support = lambda loc: False
 
 		if self.ords[rdim] == 0:
-			ghost = lambda loc: False
+			ghost = lambda loc: False#interface(loc)
+		# ghost = lambda loc: False
 
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]

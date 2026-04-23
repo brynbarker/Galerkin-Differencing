@@ -37,13 +37,10 @@ class ConstraintOperator:
 
 	def construct_null_proj_op(self,comp):
 		proj_ops = []
-		split = len(self.true_dofs)
-		for index,dof_id in enumerate(self.true_dofs):
-			if dof_id >= self.dof_id_shift:
-				split = index
-				break
+		split = self.true_split
 
 		sep_true_dofs = [self.true_dofs[:split],self.true_dofs[split:]]
+		sep_true_dofs[-1] = [g-self.dof_id_shift for g in sep_true_dofs[-1]]
 		for level in range(2):
 			p = self.mesh.patches[level]
 			if len(p.dofs)>0:
@@ -193,6 +190,12 @@ class ConstraintOperator:
 		# return
 		self.spC = sparse.coo_array((self.Cd,(self.Cr,Cc)),shape=(self.size,num_true)).tocsc()
 
+		self.true_split = len(self.true_dofs)
+		for index,dof_id in enumerate(self.true_dofs):
+			if dof_id >= self.dof_id_shift:
+				self.true_split = index
+				break
+
 		# sums = self.spC.sum(axis=1)
 
 	def vis_boundary(self):
@@ -279,6 +282,7 @@ class ConstraintOperator:
 	def vis_interface(self,mylevel=None,rtype=None):
 		issue_spots = []
 		color = 0
+		labs0, labs1 =False,False
 		fig,ax = plt.subplots(2,1,figsize=(10,20))
 		val_list = []
 		full_ghost_list = self.ghost_list
@@ -306,8 +310,13 @@ class ConstraintOperator:
 					cdof = self.patches[cpatch].get_dof(c_id)
 					# mycolor = 'C'+str(color % 10)
 					# color += 1
-					ax[0].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
-					ax[0].plot(cdof.x,cdof.y,'.',c=mycolor)
+					if not labs0:
+						ax[0].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none',label='ghost')
+						ax[0].plot(cdof.x,cdof.y,'.',c=mycolor,label='true')
+						labs0 = True
+					else:
+						ax[0].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
+						ax[0].plot(cdof.x,cdof.y,'.',c=mycolor)
 					ax[0].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
 
 
@@ -322,10 +331,17 @@ class ConstraintOperator:
 
 					# mycolor = 'C'+str(color % 10)
 					# color += 1
-					ax[1].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
+					if not labs1:
+						ax[1].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none',label='ghost')
+					else:
+						ax[1].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
 
 					if mylevel is None or mylevel==cpatch:
-						ax[1].plot(cdof.x,cdof.y,'.',c=mycolor)
+						if not labs1:
+							ax[1].plot(cdof.x,cdof.y,'.',c=mycolor,label='true')
+							labs1=True
+						else:
+							ax[1].plot(cdof.x,cdof.y,'.',c=mycolor)
 						# ax[1].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
 						ax_arrow(tail_position=(ghost.x,ghost.y),
 							head_position=(cdof.x,cdof.y),
@@ -335,6 +351,12 @@ class ConstraintOperator:
 			except:
 				issue_spots.append(ghost_id_global)
 				print(ghost_id_global,(ghost.x,ghost.y),sum(myval_list),len(pairs))
+
+		if labs0: ax[0].legend()
+		if labs1: ax[1].legend()
+		ax[0].set_title(r'$C_{ij}=1$',fontsize=10)
+		ax[1].set_title(r'$C_{ij}\neq 1$',fontsize=10)
+
 		plt.show()
 
 		for global_id in issue_spots:

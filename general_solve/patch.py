@@ -8,7 +8,7 @@ refinement_type = {'uniform':0,
 				   'coarsecenter':2}
 
 class Patch:
-	def __init__(self,N,dim,refinement_info,dtype,ords,level=0):#,ords=[3,3]):
+	def __init__(self,N,dim,refinement_info,dtype,ords,level=0,ghost_off=False):
 		self.N = (1+level)*N
 		self.h = 1/self.N
 		self.dim = dim
@@ -33,8 +33,15 @@ class Patch:
 		self.row_sum = np.zeros((self.lens[1],self.size))
 		self.col_sum = np.zeros((self.lens[0],self.size))
 
+		self.ghost_off = ghost_off
+
 		self._setup()
 
+		keeps = np.sum(self.row_sum,axis=1)!=0
+		self.row_sum = self.row_sum[keeps,:]
+
+		keeps = np.sum(self.col_sum,axis=1)!=0
+		self.col_sum = self.col_sum[keeps,:]
 		if False:
 			self.vis()
 			self.vis_interface_eval_points()
@@ -77,13 +84,16 @@ class Patch:
 
 		return self._get_lookup_id_from_ind(ind)
 
-	def _get_element_from_loc(self,loc):
-		
+	def _get_element_from_loc(self,loc_in):
+		loc = np.copy(loc_in)
 		loc = [x - (x==1)*1e-12 for x in loc]
+		if self.yside: loc[0]+=self.h/2
+		if self.xside: loc[1]+=self.h/2
+		
 		# loc = [x + (x==0)*1e-12 for x in loc]
 		el_lookup_id = self._get_lookup_id_from_loc(loc)
 		e =	self.elements[el_lookup_id]
-		e.check_loc(loc)
+		e.check_loc(loc_in)
 		return e
 
 	def _get_periodic_pair(self,loc):
@@ -137,6 +147,10 @@ class Patch:
 		self.interface_dofs = []
 		self.interface_ghosts = []
 		self.interface_points = []
+
+		if self.ghost_off:
+			self.ghost_count = 0
+			return
 		for (ind,ghost_loc) in zip(inds,ghosts):
 			dof_lookup_id = self._get_lookup_id_from_ind(ind)
 			if ghost_loc is not None:
@@ -146,7 +160,7 @@ class Patch:
 			else:
 				self.interface_dofs.append(dof_lookup_id)
 
-		self.ghost_count = sum(self.interface_ghosts)
+		self.ghost_count = len(self.interface_ghosts)
 
 	def evaluate_interface_points(self,eval_points):
 		evals = np.zeros((len(eval_points),len(self.interface_dofs)))

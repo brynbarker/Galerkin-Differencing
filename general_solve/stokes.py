@@ -1,4 +1,5 @@
 import numpy as np
+import krylov
 import matplotlib.pyplot as plt
 from scipy import linalg as scla
 import scipy.sparse.linalg as sla
@@ -26,6 +27,9 @@ class Pressure(SingleComponentVariable):
 		if qpn is None: qpn = max(ords)+2
 		super().__init__(N,dim,dofloc,rtype,rname,var,ords,qpn)
 
+		self.mesh.view()
+		self.mesh.view_detailed()
+
 	def compute_divergence(self,l_dphivals,local_test_size,
 						global_test_sizes,el_map):
 		self.div_op = self.setup_divergence(
@@ -52,6 +56,10 @@ class Velocity(MultiComponentVariable):
 		if qpn is None: qpn = max(ords)+1
 		super().__init__(N, dim, doflocs, 
 				   rtype, rname, vars, ords, qpn)
+		self.u.mesh.view()
+		self.u.mesh.view_detailed()
+		self.v.mesh.view()
+		self.v.mesh.view_detailed()
 
 		self.spC = sparse.bmat(np.array(
 			[[self.u.constraints.spC,None],
@@ -81,7 +89,7 @@ class StokesFlow:
 				 ords=None,ord=1,qpn=None,mu=1):
 		if ords is None:
 			ords = [ord,ord-1,ord-1]
-		self.ord = max(ords)
+		self.zero = 0 in ords
 		if qpn is None: qpn = max(ords)+1
 		self.N = N
 		self.dim = dim
@@ -140,21 +148,22 @@ class StokesFlow:
 		p0 =  max(self.pressure.ords) == 0
 		
 		if p0:
-			pels = self.pressure.mesh.patches[0].elements
-			uels = self.velocity.u.mesh.patches[0].elements
-			vels = self.velocity.v.mesh.patches[0].elements
-			for peid,ueid,veid in zip(pels,uels,vels):
-				pe = pels[peid]
-				ue = uels[ueid]
-				ve = vels[veid]
+			for level in range(2):
+				pels = self.pressure.mesh.patches[level].elements
+				uels = self.velocity.u.mesh.patches[level].elements
+				vels = self.velocity.v.mesh.patches[level].elements
+				for peid,ueid,veid in zip(pels,uels,vels):
+					pe = pels[peid]
+					ue = uels[ueid]
+					ve = vels[veid]
 
-				new_el = PseudoElement()
-				new_el.set_const()
-				for q_id in range(4):
-					for dim,vel_el in enumerate([ue,ve]):
-						new_el.add_dof_ids(dim,q_id,vel_el.dof_ids)
+					new_el = PseudoElement()
+					new_el.set_const()
+					for q_id in range(4):
+						for dim,vel_el in enumerate([ue,ve]):
+							new_el.add_dof_ids(dim,q_id,vel_el.dof_ids)
 
-				d_element_map[pe] = new_el
+					d_element_map[pe] = new_el
 
 		else:
 			shift_vecs = np.eye(self.dim)
@@ -206,11 +215,11 @@ class StokesFlow:
 		full_size = sum([v.size for v in vecs])
 		if full_size == sum(self.sizes):
 			vec = np.zeros(sum(self.sizes))
-			uv_split = self.sizes[-1]
+			uv_split = self.sizes[0]
 			vp_split = sum(self.sizes[:-1])
 		else:
 			vec = np.zeros(sum(self.C_sizes))
-			uv_split = self.C_sizes[-1]
+			uv_split = self.C_sizes[0]
 			vp_split = sum(self.C_sizes[:-1])
 
 		vec[:uv_split] = vecs[0].flatten()
@@ -277,7 +286,7 @@ class StokesFlow:
 		new_vecs.append(vecs[-1])
 		return new_vecs				
 
-	def solve(self,forces,disp=True):
+	def solve(self,forces,disp=True,err_only=True):
 		self._build_force(forces)
 
 		rhs = self.C.T.dot(self.F)
@@ -289,7 +298,7 @@ class StokesFlow:
 			if abs(f_proj) > 1e-12: 
 				l_rhs[i] = l_rhs[i] - f_proj
 
-		if self.ord == 1:
+		if self.zero:
 			u_proj_ops,usplt = self.velocity.u.constraints.construct_null_proj_op(0)
 			v_proj_ops,vsplt = self.velocity.v.constraints.construct_null_proj_op(1)
 
@@ -303,21 +312,23 @@ class StokesFlow:
 				projs = []
 				for j,vec in enumerate(levels):
 					projs.append(proj_ops[i][j]@vec)
-				l_rhs[i] = np.vstack(projs)
+				l_rhs[i] = np.hstack(projs)
 
 		self.rhs = self._merge_vec(l_rhs)
 
-		# x_star, conv = sla.gmres(self.sys,rhs,rtol=1e-13)
+		self.x_star, info = krylov.gmres(self.sys,self.rhs)
+		# self.x_star = np.linalg.solve(self.sys.todense(),rhs)
+		# self.x_star, conv = sla.gmres(self.sys,self.rhs,rtol=1e-13)
 		# assert conv==0
-		self.x_star = np.linalg.solve(self.sys.todense(),self.rhs)
 
 		l_x = self._split_vec(self.x_star)
 		l_zTc = self._split_vec(self.zTc)
 		for i in range(3):
 			alpha = (l_zTc[i].T@l_x[i]) / self.mean_values[i]
+			print('alpha',alpha)
 			l_x[i] = l_x[i] - alpha
 
-			if self.ord==1 and i<2:
+			if self.zero and i<2:
 				tmp = l_x[i]
 				levels = [tmp[:splits[i]]]
 				if splits[i] < len(tmp):
@@ -325,8 +336,9 @@ class StokesFlow:
 
 				projs = []
 				for j,vec in enumerate(levels):
-					projs.append(proj_ops[i][j]@vec)
-				l_x[i] = np.vstack(projs)
+					projs.append((proj_ops[i][j]@vec).flatten())
+				print(np.linalg.norm((l_x[i]).flatten()-np.hstack(projs)))
+				l_x[i] = np.hstack(projs)
 
 		self.x = self._merge_vec(l_x)
 
@@ -342,7 +354,8 @@ class StokesFlow:
 		if disp:
 			print('L2 Errors:\tVelocity: {}\tPressure: {}'.format(round(self.velocity.L2_err,5),round(pr_L2,5)))
 			print('Linf Errors:\tVelocity: {}\tPressure: {}'.format(round(self.velocity.Linf_err,5),round(pr_Linf,5)))
-			self.view_sol([U,V,P],err=True)
+			if not err_only:
+				self.view_sol([U,V,P],err=True)
 		
 		
 
@@ -400,12 +413,21 @@ class StokesFlow:
 			print('{} Test\t:   {}'.format(name,res(test())))
 
 	def check_schur_null(self):
+
+		vel_size = self.C_sizes[0]+self.C_sizes[1]
+		p_size = self.C_sizes[-1]
+
+		constrained_div = self.sys[vel_size:,:-p_size]
+		constrained_lap = self.sys[:vel_size,:vel_size]
 		
-		dense_div, dense_lap = self.divergence.todense(), self.laplace.todense()
+		dense_div, dense_lap = constrained_div.todense(), constrained_lap.todense()
 		
+		return dense_div,dense_lap
 		schur = dense_div @ scla.inv(dense_lap) @ dense_div.T
 		ns_schur = scla.null_space(schur)
 		n,m = ns_schur.shape
+		print(n,m)
+		true_list = self.pressure.constraints.true_dofs
 		for vec in range(m):
-			self.pressure.vis_dof_sol(ns_schur[:,vec])
+			self.pressure.vis_dof_sol(ns_schur[:,vec],true_list=true_list)
 		return schur
