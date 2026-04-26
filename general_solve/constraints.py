@@ -21,6 +21,8 @@ class ConstraintOperator:
 		self.Cc = []
 		self.Cd = []
 
+		self.null_space = None
+
 		self._set_patches()
 		self._setup_interface()
 		self._setup_boundary()
@@ -35,28 +37,29 @@ class ConstraintOperator:
 			return output
 		return dof_id + self.dof_id_shift*p_id
 
-	def construct_null_proj_op(self,comp):
-		proj_ops = []
-		split = self.true_split
+	def construct_null_space(self):
+		if self.null_space is None:
+			full_sum_arr,cut = self.mesh.collapse_null_space()
+			sum_arr = full_sum_arr[:,self.true_dofs]
+			if cut is not None:
+				mid = np.sum(sum_arr[cut:-cut],axis=0)
+				outside = np.sum(sum_arr,axis=0)-mid
+				sum_arr = np.vstack((sum_arr,mid,outside))
+			# print(sum_arr)
+			# print(1/np.linalg.norm(sum_arr,axis=1))
+			# print(sum_arr @ sum_arr.T)
+			normed_sum_arr = sum_arr / np.sqrt(sum_arr.sum(axis=1).reshape((-1,1)))
+			self.null_space = normed_sum_arr
+			# print(normed_sum_arr)
+		
+			# print(normed_sum_arr.sum(axis=1))
+			# print(normed_sum_arr.shape)
+			# print((sum_arr.T@normed_sum_arr).shape)
+			# avec = sum_arr @ normed_sum_arr.T
+			# print(self.spC.shape)
 
-		sep_true_dofs = [self.true_dofs[:split],self.true_dofs[split:]]
-		sep_true_dofs[-1] = [g-self.dof_id_shift for g in sep_true_dofs[-1]]
-		for level in range(2):
-			p = self.mesh.patches[level]
-			if len(p.dofs)>0:
-				full_sum_arr = p.col_sum if comp else p.row_sum
-
-				sum_arr = full_sum_arr[:,sep_true_dofs[level]]
-
-				normed_sum_arr = sum_arr / sum_arr.sum(axis=1).reshape((-1,1))
-				true_size = len(sep_true_dofs[level])
-
-				proj_op = np.eye(true_size) - sum_arr.T @ normed_sum_arr
-			else:
-				proj_op = None
-
-			proj_ops.append(proj_op)
-		return proj_ops, split
+			# self.null_space = np.eye(len(self.true_dofs)) - sum_arr @ normed_sum_arr.T
+		return self.null_space
 
 
 
@@ -299,6 +302,7 @@ class ConstraintOperator:
 			ghost = self.patches[gpatch].get_dof(ghost_id)
 			mycolor = 'C'+str(color % 10)
 			color += 1
+			ax[0].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			myval_list = []
 			for (c,v) in pairs:

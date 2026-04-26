@@ -75,11 +75,31 @@ class Mesh:
 		self.dof_id_shift = len(coarse_patch.dofs)
 
 	def loc_to_el(self,loc):
-		get_shift = [0,self.dof_id_shift]
 		loc_patch_id = self.refinement.get_patch_id(loc)
 		shift = self.dof_id_shift if loc_patch_id else 0
 		return self.patches[loc_patch_id]._get_element_from_loc(loc), shift
 
+	
+	def collapse_null_space(self):
+		sum_arrs = [p.sum_arr for p in self.patches]
+		if self.rtype == 'uniform':
+			return sum_arrs[0],None
+		elif self.rtype == 'stripe':
+			if self.refinement.rdim == self.patches[0].comp:
+				sum_arrs[1] = sum_arrs[1][::2]+sum_arrs[1][1::2]
+				return np.hstack(sum_arrs),None
+			else:
+				shapes = [arr.shape for arr in sum_arrs]
+				zero_0 = np.zeros((shapes[0][0],shapes[1][1]))
+				zero_1 = np.zeros((shapes[1][0],shapes[0][1]))
+				return np.block([[sum_arrs[0],zero_0],
+					 			 [zero_1,sum_arrs[-1]]]), None
+		else:
+			coarse_map, fine_map, cut = self.refinement.get_null_condensers()
+			new_c = coarse_map @ sum_arrs[0]
+			new_f = fine_map @ sum_arrs[-1]
+
+			return np.hstack([new_c,new_f]),cut
 
 	def view(self):
 		fig,ax = plt.subplots(2,1,figsize=(10,10))
@@ -203,30 +223,36 @@ class Mesh:
 
 		plt.show()
 	
-	def vis_dof_sol(self,U,true_list=None,shrunk=None,log=True):
+	def vis_dof_sol(self,U,true_list=None,shrunk=None,log=True,split=True):
 		
-		fig,ax = plt.subplots(1,2,figsize=(20,10))
+		if split:
+			fig,axes = plt.subplots(1,2,figsize=(20,10))
+		else:
+			fig,ax = plt.subplots(figsize=(10,10))
 
-		c_vals = {0:[],1:[]}
-		locs = {0:[],1:[]}
+		c_vals = []#{0:[],1:[]}
+		locs = []#{0:[],1:[]}
 
 		id_shift = len(self.patches[0].dofs)
 		cbar_loc = ['left','right']
 
 		for level in range(2):
+			if split: 
+				ax = axes[level]
+				c_vals,locs = [],[]
 			try:
 				H = self.h/(1+level)
 				dom = np.linspace(0,1,(1+level)*self.N+1)
 				ext_dom = np.linspace(-2*H,1+2*H,(1+level)*self.N+5)
 				eps = H/8
 				for x in dom:
-					ax[level].plot([x,x],[0,1],'grey',zorder=0)
-					ax[level].plot([0,1],[x,x],'grey',zorder=0)
+					ax.plot([x,x],[0,1],'grey',zorder=0)
+					ax.plot([0,1],[x,x],'grey',zorder=0)
 				for x in ext_dom:
-					ax[level].plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
-					ax[level].plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
+					ax.plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
+					ax.plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
 				if self.rindex==2:
-					ax[level].plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
+					ax.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 
 				for id in self.patches[level].dofs:
 					dof = self.patches[level].dofs[id]
@@ -236,22 +262,27 @@ class Mesh:
 						else:
 							true_index = true_list.index(global_id)
 							u_val = U[true_index]
-						c_vals[level].append(u_val)
-						locs[level].append(dof.loc)
+						c_vals.append(u_val)
+						locs.append(dof.loc)
 
-				tmp = np.array(locs[level]).T
+
+				tmp = np.array(locs).T
 				if tmp.size > 0:
 					x,y = tmp
 				else:
 					x,y = [],[]
-				if log:
-					logvals = [np.log(cval) for cval in c_vals[level]]
-					plot = ax[level].scatter(x,y,c=logvals,cmap='jet',zorder=1)	
-				else:
-					plot = ax[level].scatter(x,y,c=c_vals[level],cmap='jet',zorder=1)	
-				fig.colorbar(plot,location=cbar_loc[level])
+				if split or level:
+					if log:
+						logvals = [np.log(cval) for cval in c_vals]
+						plot = ax.scatter(x,y,c=logvals,cmap='jet',zorder=1)	
+					else:
+						plot = ax.scatter(x,y,c=c_vals,cmap='jet',zorder=1)	
+					fig.colorbar(plot,location=cbar_loc[level])
 
-				ax[level].set_aspect('equal')
+					ax.set_aspect('equal')
+				else:
+					plot = ax.plot(x,y,'ko',ms=15,alpha=.5,fillstyle='none')
+
 			except:
 				print(uhoh)
 				pass

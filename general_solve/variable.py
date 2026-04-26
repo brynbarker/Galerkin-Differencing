@@ -7,6 +7,7 @@ from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
 from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator,DivergenceOperator
 from general_solve.constraints import ConstraintOperator
+import krylov
 
 class subtract_null(sla.LinearOperator):
 	def __init__(self,sys,size):
@@ -78,6 +79,8 @@ class SingleComponentVariable:
 		self.qpn = qpn
 		self.integrator = Integrator(qpn,dim,ords)
 		self.ords = ords
+		self.curr_sol = None
+		self.curr_errs = [None,None]
 
 		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname,ghost_off=ghost_off)
 		self.h = self.mesh.h
@@ -202,68 +205,52 @@ class SingleComponentVariable:
 
 		rhs = C.T.dot(op.F)
 
-		ns = scla.null_space(lhs.todense())
-		for v in ns.T:
-			proj_scale = v @ rhs
-			if abs(proj_scale) > 1e-12:
-				# print('rhs in nullspace',proj_scale)
-				rhs -= proj_scale*v
-
-
-		if not proj:
-			# alpha = (self.zTc @ rhs) / self.mean_value
-			# print('presolve',alpha)
 				
-			# rhs -= alpha
-			if False:#sum(self.ords) == 1:
-				comp = self.ords.index(1)
-				print(comp)
-				proj_ops,splt = self.constraints.construct_null_proj_op(comp)
-				rhs_parts = np.split(rhs,np.array([self.constraints.true_split]))
-				new_parts = []
-				for level,part in enumerate(rhs_parts):
-					if len(part) > 0:
-						new_parts.append(proj_ops[level] @ part)
+		if not proj and not helm and sum(self.ords)==1:
+			# self.my_ns = scla.null_space(lhs.todense()).T#self.constraints.construct_null_space()
+			self.my_ns = self.constraints.construct_null_space()
+			for v in self.my_ns:
+				# print('before',v@rhs)
+				rhs -= (v@ rhs)*v
 
-				rhs = np.hstack(new_parts)
 
+		# self.full_ns = scla.null_space(lhs.todense()).T
+		# for v in self.full_ns:
+		# 	proj_scale = v @ rhs
+		# 	print(proj_scale)
+		# 	if True:#abs(proj_scale) > 1e-11:
+		# 		# print('rhs in nullspace',proj_scale)
+		# 		rhs -= proj_scale*v
+
+		self.sp_lhs = lhs
 		self.lhs = lhs.todense()
 		self.rhs = rhs
-		# print(np.linalg.norm(self.lhs@res))
+
 
 		try:
-			x_star,conv = sla.cg(lhs,rhs,rtol=1e-12)
+			# results = krylov.gmres(lhs,rhs,tol=1e-14)
+			# assert results[1].success
+			# x_star = results[0]
+			x_star,conv = sla.gmres(lhs,rhs,rtol=1e-14)
 			assert conv == 0
 		except:
 			x_star = np.linalg.solve(lhs.todense(),rhs)
 			print('krylov issue')
 			self.totest = [lhs,rhs]
 
-		for v in ns.T:
-			proj_scale = v @ x_star
-			if abs(proj_scale) > 1e-12:
-				print(proj_scale)
-				x_star -= proj_scale*v
-
+		if not proj and not helm and sum(self.ords)==1:
+			# ns = self.constraints.construct_null_space()
+			for v in self.my_ns:
+				# print('after',v@x_star)
+				# x_star -= (v@ x_star)*v
+				pass
+		self.x_star = x_star
 		if proj:
 			self.x = x_star
 		else:
 			alpha = (self.zTc @ x_star) / self.mean_value
-			print(alpha)
 				
-			self.x = x_star - alpha
-
-			# x_parts =  np.split(x,np.array([self.constraints.true_split]))
-			# new_parts = []
-			# for part in x_parts:
-			# 	if len(part) > 0:
-			# 		x_proj = sum(part)/part.size
-			# 		print(x_proj)
-			# 		if abs(x_proj) > 1e-12:
-			# 			new_parts.append((part-x_proj).flatten())
-			# 		else:
-			# 			new_parts.append(part.flatten())
-			# self.x = np.hstack(new_parts)
+			self.x = x_star - alpha 
 
 		sol_vec = C.dot(self.x)
 
@@ -272,6 +259,9 @@ class SingleComponentVariable:
 		Linf_err = self.Linf_error(sol_vec)
 		op.set_error(err)
 		op.set_error(Linf_err,Linf=True)
+
+		self.curr_sol = sol_vec
+		self.curr_errs = [err,Linf_err]
 
 		if disp:
 			print('L2 error     = {}'.format(err))
@@ -331,12 +321,12 @@ class SingleComponentVariable:
 		err_v = np.linalg.norm(v_lhs-v_F)
 		return err_u,err_v
 
-	def vis_dof_sol(self,sol_vec,err=False,true_list=None,log=True):
+	def vis_dof_sol(self,sol_vec,err=False,true_list=None,log=True,split=True):
 		if err:
 			sol_vec = abs(self.true_sol_vec-sol_vec)
 		else:
 			log = False
-		self.mesh.vis_dof_sol(sol_vec,true_list=true_list,log=log)
+		self.mesh.vis_dof_sol(sol_vec,true_list=true_list,log=log,split=split)
 
 	def setup_laplace(self,mu=1):
 		if self.operators['lap'] is None:

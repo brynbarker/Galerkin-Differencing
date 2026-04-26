@@ -30,18 +30,26 @@ class Patch:
 		self.corners = []
 
 		self.size = len(self.info[0][0])
-		self.row_sum = np.zeros((self.lens[1],self.size))
-		self.col_sum = np.zeros((self.lens[0],self.size))
+
+		self.comp = None
+		if sum(ords) == 1:
+			self.comp = ords.index(1)
+			self.sum_arr = np.zeros((self.lens[1-self.comp],self.size))
+			# print(self.sum_arr.shape)
 
 		self.ghost_off = ghost_off
 
 		self._setup()
 
-		keeps = np.sum(self.row_sum,axis=1)!=0
-		self.row_sum = self.row_sum[keeps,:]
+		if self.comp is not None:
+			keeps = np.sum(self.sum_arr,axis=1)!=0
+			self.sum_arr = self.sum_arr[keeps,:]
+			# print(self.sum_arr.shape)
+		# keeps = np.sum(self.row_sum,axis=1)!=0
+		# self.row_sum = self.row_sum[keeps,:]
 
-		keeps = np.sum(self.col_sum,axis=1)!=0
-		self.col_sum = self.col_sum[keeps,:]
+		# keeps = np.sum(self.col_sum,axis=1)!=0
+		# self.col_sum = self.col_sum[keeps,:]
 		if False:
 			self.vis()
 			self.vis_interface_eval_points()
@@ -113,8 +121,11 @@ class Patch:
 		for id in range(self.size):
 			ind,loc,per,bc,low = d_info[0][id],d_info[1][id],d_info[2][id],d_info[3][id],d_info[4][id]
 			newdof = DoF(id,self.dim,ind,loc,self.h,self.ords)
-			self.row_sum[newdof.i,id] = 1
-			self.col_sum[newdof.j,id] = 1
+
+			if self.comp is not None:
+				index = newdof.j if self.comp else newdof.i
+				self.sum_arr[index,id] = 1
+
 			lookup_id = self._get_lookup_id_from_ind(ind)
 			self.dofs[lookup_id] = newdof
 			self.alt_dof[id] = lookup_id
@@ -123,6 +134,7 @@ class Patch:
 				self.periodic_pairs[lookup_id] = pair_lookup_id
 			if low:
 				self.corners.append(lookup_id)
+		# print(self.sum_arr)
 
 		for id in range(len(e_info[0])):
 			ind,loc,quads = e_info[0][id],e_info[1][id],e_info[2][id]

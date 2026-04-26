@@ -153,12 +153,12 @@ class RefinementPattern:
 		extraL, extraR = [],[]
 		for	i in range(self.dim):
 			same = (i==0 and self.yside) or (i==1 and self.xside)
-			if self.ords[i] == 0:
-				offsets = [-1,1,-1,1]
-				i_edges[i] = [val+3*H/4*s for (val,s) in zip(edges[i],offsets)]
-				extraL.append(0)
-				extraR.append(0)
-			elif self.cell or same:
+			# if self.ords[i] == 0:
+			# 	offsets = [-1,1,-1,1]
+			# 	i_edges[i] = [val+3*H/4*s for (val,s) in zip(edges[i],offsets)]
+			# 	extraL.append(0)
+			# 	extraR.append(0)
+			if self.cell or same:
 				i_edges[i] = [val for val in edges[i]]
 				extraL.append(0)
 				extraR.append(0)
@@ -395,6 +395,30 @@ class SquareRefinement(RefinementPattern):
 		self.rtype = square_refinement_type[name]
 		rindex_to_shade ={0:['in','out'],1:['out','in']}
 		self.rshade = rindex_to_shade[self.rtype]
+	
+	def get_null_condensers(self):
+		if self.rtype:
+			cut = int(self.N/2)
+			I = np.eye(cut)
+
+			coarse_condense = np.zeros((cut,3*cut))
+			coarse_condense[:,cut:-cut] = I[:]
+
+			fine_condense = np.zeros((4*cut,3*cut))
+			fine_condense[:cut,:cut] = I[:]
+			fine_condense[-cut:,-cut:] = I[:]
+			fine_condense[cut:-cut:2,cut:-cut] = I[:]
+			fine_condense[cut+1:-cut:2,cut:-cut] = I[:]
+		else:
+			cut = int(self.N/4)
+			I = np.eye(2*cut)
+
+			coarse_condense = np.eye(self.N)
+
+			fine_condense = np.zeros((self.N,self.N))
+			fine_condense[::2,cut:-cut] = I[:]
+			fine_condense[1::2,cut:-cut] = I[:]
+		return coarse_condense.T, fine_condense.T, cut
 
 	def get_patch_id(self, loc):
 		check = lambda x: .25 <= x < .75

@@ -103,9 +103,9 @@ class DifferentialOperator:
 
 
 class LaplaceOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,mu):
+	def __init__(self,mesh,integrator,mu=1):
 		super().__init__(mesh,integrator)
-		self.mu = mu
+		self.mu = mu 
 
 		self.lookup = integrator.get_k_vals()
 
