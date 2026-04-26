@@ -35,7 +35,6 @@ class Patch:
 		if sum(ords) == 1:
 			self.comp = ords.index(1)
 			self.sum_arr = np.zeros((self.lens[1-self.comp],self.size))
-			# print(self.sum_arr.shape)
 
 		self.ghost_off = ghost_off
 
@@ -44,12 +43,6 @@ class Patch:
 		if self.comp is not None:
 			keeps = np.sum(self.sum_arr,axis=1)!=0
 			self.sum_arr = self.sum_arr[keeps,:]
-			# print(self.sum_arr.shape)
-		# keeps = np.sum(self.row_sum,axis=1)!=0
-		# self.row_sum = self.row_sum[keeps,:]
-
-		# keeps = np.sum(self.col_sum,axis=1)!=0
-		# self.col_sum = self.col_sum[keeps,:]
 		if False:
 			self.vis()
 			self.vis_interface_eval_points()

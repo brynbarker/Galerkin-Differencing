@@ -27,8 +27,7 @@ class Pressure(SingleComponentVariable):
 		if qpn is None: qpn = max(ords)+2
 		super().__init__(N,dim,dofloc,rtype,rname,var,ords,qpn)
 
-		self.mesh.view()
-		self.mesh.view_detailed()
+		# self.mesh.view()
 
 	def compute_divergence(self,l_dphivals,local_test_size,
 						global_test_sizes,el_map):
@@ -56,10 +55,8 @@ class Velocity(MultiComponentVariable):
 		if qpn is None: qpn = max(ords)+1
 		super().__init__(N, dim, doflocs, 
 				   rtype, rname, vars, ords, qpn)
-		self.u.mesh.view()
-		self.u.mesh.view_detailed()
-		self.v.mesh.view()
-		self.v.mesh.view_detailed()
+		# self.u.mesh.view()
+		# self.v.mesh.view()
 
 		self.spC = sparse.bmat(np.array(
 			[[self.u.constraints.spC,None],
@@ -99,6 +96,8 @@ class StokesFlow:
 		self.velocity = Velocity(N,dim,qpn=qpn,rtype=rtype,
 						   rname=rname,vars=vars[:-1],
 						   ords=ords[:-1],mu=mu)
+		
+		self.components = [self.velocity.u,self.velocity.v,self.pressure]
 
 		self._setup_coupling()
 		self._setup_operators()
@@ -291,7 +290,10 @@ class StokesFlow:
 
 		rhs = self.C.T.dot(self.F)
 		l_rhs = self._split_vec(rhs)
+
+		self.ns_ops = []
 		for i in range(3):
+			
 			f_proj = sum(l_rhs[i])/l_rhs[i].size
 
 			# check for nonzero projections into nullspace
@@ -299,27 +301,17 @@ class StokesFlow:
 				l_rhs[i] = l_rhs[i] - f_proj
 
 		if self.zero:
-			u_proj_ops,usplt = self.velocity.u.constraints.construct_null_proj_op(0)
-			v_proj_ops,vsplt = self.velocity.v.constraints.construct_null_proj_op(1)
-
-			proj_ops,splits = [u_proj_ops,v_proj_ops],[usplt,vsplt]
-			for i in range(2):
-				tmp = l_rhs[i]
-				levels = [tmp[:splits[i]]]
-				if splits[i] < len(tmp):
-					levels.append(tmp[splits[i]:])
-
-				projs = []
-				for j,vec in enumerate(levels):
-					projs.append(proj_ops[i][j]@vec)
-				l_rhs[i] = np.hstack(projs)
+			for i,comp in enumerate(self.components[:-1]):
+				self.ns_ops.append(comp.constraints.construct_null_space())
+				for v in self.ns_ops[-1]:
+					l_rhs[i] -= (v @ l_rhs[i]) * v
 
 		self.rhs = self._merge_vec(l_rhs)
 
-		self.x_star, info = krylov.gmres(self.sys,self.rhs)
+		# self.x_star, info = krylov.gmres(self.sys,self.rhs)
 		# self.x_star = np.linalg.solve(self.sys.todense(),rhs)
-		# self.x_star, conv = sla.gmres(self.sys,self.rhs,rtol=1e-13)
-		# assert conv==0
+		self.x_star, conv = sla.gmres(self.sys,self.rhs,rtol=1e-14)
+		assert conv==0
 
 		l_x = self._split_vec(self.x_star)
 		l_zTc = self._split_vec(self.zTc)
@@ -327,18 +319,6 @@ class StokesFlow:
 			alpha = (l_zTc[i].T@l_x[i]) / self.mean_values[i]
 			print('alpha',alpha)
 			l_x[i] = l_x[i] - alpha
-
-			if self.zero and i<2:
-				tmp = l_x[i]
-				levels = [tmp[:splits[i]]]
-				if splits[i] < len(tmp):
-					levels.append(tmp[splits[i]:])
-
-				projs = []
-				for j,vec in enumerate(levels):
-					projs.append((proj_ops[i][j]@vec).flatten())
-				print(np.linalg.norm((l_x[i]).flatten()-np.hstack(projs)))
-				l_x[i] = np.hstack(projs)
 
 		self.x = self._merge_vec(l_x)
 

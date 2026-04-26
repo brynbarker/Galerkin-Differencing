@@ -102,7 +102,8 @@ class Mesh:
 			return np.hstack([new_c,new_f]),cut
 
 	def view(self):
-		fig,ax = plt.subplots(2,1,figsize=(10,10))
+		fig,ax = plt.subplots(1,2,figsize=(20,10))
+		extra = max(.5,max(self.patches[0].ords)-1)
 
 		for level in range(2):
 			H = self.h/(1+level)
@@ -150,6 +151,8 @@ class Mesh:
 
 
 			ax[level].set_aspect('equal')
+			ax[level].set_xlim(-H*extra,1+H*extra)
+			ax[level].set_ylim(-H*extra,1+H*extra)
 
 		plt.show()
 
