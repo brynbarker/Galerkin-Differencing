@@ -13,47 +13,6 @@ refinement_index = {'uniform':0,
 				   'square':2}
 
 
-class PseudoMesh:
-	def __init__(self,N,dim=2,rtype='uniform',rname=None):
-		self.rindex = refinement_index[rtype]
-		rClass = refinement_class[rtype]
-		refinement = rClass(rname,'node',N,dim,[1,1])
-		
-		fine_info = refinement.get_fine_info()
-
-		coarse_info = refinement.get_coarse_info()
-		H = 1/N
-		quad_shifts_x = [H/4,3*H/4,H/4,3*H/4]
-		quad_shifts_y = [H/4,H/4,3*H/4,3*H/4]
-		self.coarse_quads = []
-		for id in range(len(coarse_info[1][0])):
-			loc,quads = coarse_info[1][1][id],coarse_info[1][2][id]
-			x,y = loc
-			my_quads = {}
-			for quad_id,quad in enumerate(quads):
-				if quad:
-					new_x = x + quad_shifts_x[quad_id]
-					new_y = y + quad_shifts_y[quad_id]
-					my_quads[quad_id] = (new_x,new_y)
-			self.coarse_quads.append(my_quads)
-		
-
-		fine_info = refinement.get_fine_info()
-		H = 1/N/2
-		quad_shifts_x = [H/4,3*H/4,H/4,3*H/4]
-		quad_shifts_y = [H/4,H/4,3*H/4,3*H/4]
-		self.fine_quads = []
-		for id in range(len(fine_info[1][0])):
-			loc,quads = fine_info[1][1][id],fine_info[1][2][id]
-			x,y = loc
-			my_quads = {}
-			for quad_id,quad in enumerate(quads):
-				if quad:
-					new_x = x + quad_shifts_x[quad_id]
-					new_y = y + quad_shifts_y[quad_id]
-					my_quads[quad_id] = (new_x,new_y)
-			self.fine_quads.append(my_quads)
-
 class Mesh:
 	def __init__(self,N,dim,ords,dofloc='node',
 			     rtype='uniform',rname=None,ghost_off=False):#,ords=[3,3]):
@@ -73,6 +32,45 @@ class Mesh:
 		self.patches = [coarse_patch,fine_patch]
 
 		self.dof_id_shift = len(coarse_patch.dofs)
+
+	def set_quadrature(self,integrator):
+		self.pts = np.array(integrator.points)
+		self.wts = np.array(integrator.weights)
+ 
+	def get_interface_lines(self):
+		pts,wts = ((self.pts+1)/2)*self.h/4, self.wts*self.h/8
+		interface_lines,comps = self.refinement.get_interface_lines()
+		all_points,all_weights = [[],[]],[]
+
+		for line,comp in zip(interface_lines,comps):
+			points = []
+				
+			val = line[0][1-comp]
+			# tmp = [val]*len(pts)
+			nodes = [nd[comp] for nd in line]
+			for left in nodes[:-1]:
+				points += list(pts+left)
+				# if comp:
+				# 	plt.plot(tmp,pts+left,'.')
+				# else:
+				# 	plt.plot(pts+left,tmp,'.')
+			weights = list(wts) * len(nodes[:-1])
+
+			all_points[comp] += points
+			other_points = [val]*len(points)
+			# if comp:
+			# 	plt.plot(other_points,points,'.')
+			# else:
+			# 	plt.plot(points,other_points,'.')
+			all_points[1-comp] += other_points
+			all_weights += weights
+			# print(all_points)
+
+		# plt.plot(all_points[0],all_points[1],'.')
+		# plt.show()
+		# plt.plot(all_points[0],all_points[1],'.')
+		# plt.show()
+		return np.asarray(all_points).T, np.asarray(all_weights)
 
 	def loc_to_el(self,loc):
 		loc_patch_id = self.refinement.get_patch_id(loc)

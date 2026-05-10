@@ -1,5 +1,7 @@
+import numpy as np
+
 class Element:
-	def __init__(self,ID,dim,inds,loc,h,ords):#=[3,3]):
+	def __init__(self,ID,dim,inds,loc,h,ords,cart=True):
 		for index in range(dim):
 			if ords[index] == 0:
 				loc[index] -= h/2
@@ -9,6 +11,7 @@ class Element:
 		self.loc = loc
 		self.ind = inds
 		self.ords = ords
+		self.regular = cart
 		if dim == 2:
 			self.i,self.j = inds
 			self.x,self.y = loc
@@ -31,6 +34,8 @@ class Element:
 		self.interface = False
 		self.dom = [[coord,coord+h] for coord in loc]
 
+
+			
 	def add_dofs(self,strt,lens):
 		# these are lookup ids!
 		if len(self.dof_ids) != 0:
@@ -44,6 +49,8 @@ class Element:
 		for ii in range(self.ords[1]+1):
 			for jj in range(self.ords[0]+1):
 				self.dof_lookup_ids.append(strt+xlen*ii+jj)
+		if not self.regular:
+			self._compute_jacobian()
 		return
 
 	def add_dofs_3d(self,strt,xlen):
@@ -79,6 +86,107 @@ class Element:
 	
 	def get_dof_ids(self,id=None):
 		return self.dof_ids
+
+class TrapElement(Element):
+	def __init__(self, ID, dim, inds, loc, h, ords):
+		super().__init__(ID, dim, inds, loc, h, ords, cart=False)
+
+	def set_corners(self,corner_nodes):
+		xa,xb,xc,xd = [n.x for n in corner_nodes]
+		ya,yb,yc,yd = [n.y for n in corner_nodes]
+		self.x = xa
+		self.y = ya
+
+		x_coefs = [xa,xb-xa,xc-xa,xd+xa-xb-xc]
+		y_coefs = [ya,yb-ya,yc-ya,yd+ya-yb-yc]
+
+		if 0 in x_coefs:
+			slopes = [(yb-ya)/(xb-xa), (yd-yc)/(xd-xc)]
+			self.slant = lambda x,y: (slopes[0]*(x-xa)+ya < y < slopes[1]*(x-xc)+yc)
+			self.parralel = lambda x,y: xa < x < xb
+		else:
+			slopes = [(xc-xa)/(yc-ya), (xb-xd)/(yb-yd)]
+			self.slant = lambda x,y: (slopes[0]*(y-ya)+xa < x < slopes[1]*(y-yd)+xd)
+			self.parralel = lambda x,y: ya < y < yc
+
+		self.check_loc = lambda x,y: self.parralel(x,y) and self.slant(x,y)
+
+		def my_transform(x,y):
+			if 0 in x_coefs:
+				xi = (x-x_coefs[0])/x_coefs[1]
+				eta = (y-y_coefs[0]-y_coefs[1]*xi)/(y_coefs[-2]+y_coefs[-1]*xi)
+			elif 0 in y_coefs:
+				eta = (y-y_coefs[0])/y_coefs[1]
+				xi = (x-x_coefs[0]-x_coefs[1]*xi)/(x_coefs[-2]+x_coefs[-1]*eta)
+			return xi*self.h,eta*self.h
+		self.transform = my_transform
+
+		self.corners = corner_nodes
+
+	def _compute_jacobian(self):
+		x_coefs = [n.x for n in self.corners]
+		y_coefs = [n.y for n in self.corners]
+		all_coefs = [x_coefs,y_coefs]
+
+		def jac(xi,eta):
+			vars = [xi,eta]
+			J = np.zeros((2,2))
+			for i,var in enumerate(vars):
+				for j,coefs in enumerate(all_coefs):
+					c0 = coefs[i+1]-coefs[0]
+					c1 = coefs[3]-coefs[2-i]
+					J[i,j] = c0*(1-var)+c1*var
+			Jinv = np.array([[J[1,1],-J[0,1]],[-J[1,0],J[0,0]]])
+			Jdet = J[0,0]*J[1,1]-J[0,1]*J[1,0]
+			return Jdet*Jinv
+		self.jac = jac
+
+class TriElement(Element):
+	def __init__(self, ID, dim, inds, loc, h, ords):
+		super().__init__(ID, dim, inds, loc, h, ords, cart=False)
+
+	def set_corners(self,corner_nodes):
+		xa,xb,xc = [n.x for n in corner_nodes]
+		ya,yb,yc = [n.y for n in corner_nodes]
+		self.x = xa
+		self.y = ya
+
+		if xb == xc:
+			slopes = [(yb-ya)/(xb-xa), (yc-ya)/(xc-xa)]
+			self.slant = lambda x,y: (slopes[0]*(x-xa)+ya < y < slopes[1]*(x-xc)+yc)
+			self.parallel = lambda x,y: xa < x < xb
+
+			A,B,C = xb-xa, (yb-ya)/(xb-xa), (yc-ya)/(xc-xa)
+			self.J = lambda xi,eta: np.array([[A,0],[A*(eta*(C-B)+B),A*xi*(C-B)]])
+		else:
+			slopes = [(xb-xa)/(yb-ya), (xc-xa)/(yc-ya)]
+			self.slant = lambda x,y: (slopes[0]*(y-ya)+xa < x < slopes[1]*(y-yc)+xc)
+			self.parallel = lambda x,y: ya < y < yb
+
+			A,B,C = yb-ya, (xb-xa)/(yb-ya), (xc-xa)/(yc-ya)
+			self.J = lambda xi,eta: np.array([[A*eta*(C-B),A*(xi*(C-B)+B)],[0,A]])
+
+		self.check_loc = lambda x,y: self.parralel(x,y) and self.slant(x,y)
+
+		def my_transform(x,y):
+			if xb == xc:
+				eta = ((y-ya)/(x-xa) - B)/(C-B)
+				xi = (x-xa)/A
+			else:
+				xi = ((x-xa)/(y-ya) - B)/(C-B)
+				eta = (y-ya)/A
+			return xi*self.h,eta*self.h
+		self.transform = my_transform
+
+		self.corners = corner_nodes
+
+	def _compute_jacobian(self):
+		def jac(xi,eta):
+			myJ = self.J[xi,eta]
+			Jinv = np.array([[myJ[1,1],-myJ[0,1]],[-myJ[1,0],myJ[0,0]]])
+			Jdet = myJ[0,0]*myJ[1,1]-myJ[0,1]*myJ[1,0]
+			return Jdet*Jinv
+		self.jac = lambda xi,eta: jac(xi,eta)
 
 class PseudoElement:
 	def __init__(self):

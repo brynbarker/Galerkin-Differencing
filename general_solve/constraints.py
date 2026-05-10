@@ -123,6 +123,9 @@ class ConstraintOperator:
 
 	def _setup_interface(self):
 
+		for p in self.mesh.patches:
+			p.vis('stripe')
+
 		if self.gpatch is None:
 			return
 
@@ -135,15 +138,35 @@ class ConstraintOperator:
 					to_return.append(global_id)
 			return to_return
 
-		ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
-		ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
+		lines, weights = self.mesh.get_interface_quad_locs()
+
+		ghost_evals = self.patches[self.gpatch].evaluate_interface_ghosts(lines)
+		ghost_count = ghost_evals.shape[0]
+
+
+		mass_matrix = np.zeros((ghost_count,ghost_count))
+		for i in range(ghost_count):
+			for j in range(ghost_count):
+				mass_matrix[i,j] += sum(
+					ghost_evals[i]*ghost_evals[j]*weights)
+
+		# print(mass_matrix.shape)
+		matvis(mass_matrix)
+
 
 		for p_id,p in enumerate(self.patches):
 			p_dof_local_ids = [p.dofs[lookup_id].ID for lookup_id in p.interface_dofs]
 			p_interface_dof_ids_tmp = self._global_dof_id(p_dof_local_ids,p_id)
 			p_interface_dof_ids = swap_periodic(p_interface_dof_ids_tmp)
-			nonghost_evals = p.evaluate_interface_points(self.interface_points)
-			evals = ghost_vals_inv @ nonghost_evals
+			nonghost_evals = p.evaluate_interface_lines(lines)
+			nonghost_count = nonghost_evals.shape[0]
+
+			projection_matrix = np.zeros((ghost_count,nonghost_count))
+			for i in range(ghost_count):
+				for j in range(nonghost_count):
+					projection_matrix[i,j] += sum(
+						ghost_evals[i]*nonghost_evals[j]*weights)
+			evals = np.linalg.solve(mass_matrix,projection_matrix)
 
 			sgn = 1. if p_id==self.nongpatch else -1.
 
@@ -155,7 +178,7 @@ class ConstraintOperator:
 				if p_id == 0: # just do this once
 					self.Id[g_dof_id] = 1
 
-				mask = abs(evals[g_id]) > 1e-12
+				mask = abs(evals[g_id]) > 1e-14
 				local_dofs = list(np.array(p_interface_dof_ids)[mask])
 				local_vals = (evals[g_id])[mask]
 

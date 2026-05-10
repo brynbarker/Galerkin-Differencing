@@ -66,30 +66,25 @@ class DifferentialOperator:
 
 			for e in patch.elements.values():
 				vol = (e.h/2)**self.dim
-				disp = False#patch.h==self.mesh.h and e.ID == 0
-				if disp: print(e.bounds)
-				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds,disp=disp)
-				if disp: print(fvals)
+				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
 				for test_id,dof in enumerate(e.dof_list):
 					if dof.ID in self.d_dofid_to_e_list[p_id]:
 						self.d_dofid_to_e_list[p_id][dof.ID].append(e.ID) 
 					else:
 						self.d_dofid_to_e_list[p_id][dof.ID] = [e.ID]
-					if disp: print('\n\t',dof.ID,(dof.x,dof.y))
-					if disp: self.integrator._evaluate_func_on_element(ffunc,e.bounds,test_func=dof.phi)
 					for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
 						if quad:
 							phi_val = self.integrator.phi_vals[quad_id][test_id]
-							if disp: print('\t\t',phi_val.flatten())
 							val = self.integrator._compute_product_integral(phi_val,f_val,vol)
-							if disp: print(val)
 							F[dof.ID] += val
-					if disp: print(F[dof.ID])
 			myFs.append(F)
 
 		self.F = np.hstack(myFs)
 
-	def set_solution_vector(self,sol_vec):
+	def set_solution_coef_vector(self,coef_vec):
+		self.coef_vec = coef_vec 
+
+	def set_solution(self,sol_vec):
 		self.sol_vec = sol_vec 
 
 	def set_error(self,err,Linf=False):

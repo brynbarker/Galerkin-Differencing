@@ -75,7 +75,7 @@ class Integrator:
 		lab = 'k' if k else 'm'
 		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
 		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
-		fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+		fname = fpath+'{}_spline_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
 
 		try:
 			with open(fname,'rb') as handle:
@@ -110,7 +110,7 @@ class Integrator:
 		ord_string = str(pord+1)+str(pord)+str(pord)
 
 		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
-		fname = fpath+'div_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
+		fname = fpath+'div_spline_vals_p{}_qpn{}.pickle'.format(ord_string,self.qpn)
 
 		try:
 			with open(fname,'rb') as handle:
@@ -179,10 +179,17 @@ class Integrator:
 				locs.append((xinput+xshft,yinput+yshft))
 		return locs
 
-	def _evaluate_func_at_points(self,func,bounds,arr=False,test_func=None):
-		if test_func is not None:
-			my_phi_vals = []
-			my_phi_vals = np.zeros((self.qpn,self.qpn))
+	def _evaluate_func_on_line(self,func,bounds):
+		a,b = bounds
+		xmid = (a+b)/2
+		xscale = (b-a)/2
+		vals = np.zeros((self.qpn))
+		for j in range(self.qpn):
+			xinput = xscale * self.points[j] + xmid
+			vals[j] = func(xinput)
+		return vals
+
+	def _evaluate_func_at_points(self,func,bounds,arr=False):
 		if self.dim == 2:
 			a,b,c,d = bounds
 			xmid, ymid = (a+b)/2, (c+d)/2
@@ -195,11 +202,7 @@ class Integrator:
 				for i in range(self.qpn):
 					xinput = xscale * self.points[j] + xmid
 					yinput = yscale * self.points[i] + ymid
-					if test_func is not None:
-						my_phi_vals[i,j] = test_func([xinput,yinput])
 					vals[i,j] = func(xinput,yinput)
-		if test_func is not None:
-			print('\t',my_phi_vals.flatten())
 
 		if self.dim == 3:
 			a,b,c,d,q,r = bounds
@@ -218,7 +221,7 @@ class Integrator:
 						vals[i,j,k] = func(xinput,yinput,zinput)
 		return vals
 
-	def _evaluate_func_on_element(self,func,bounds,test_func=None,disp=False):
+	def _evaluate_func_on_element(self,func,bounds):
 		lens = np.array(bounds[1::2])-np.array(bounds[::2])
 		all_vals = []
 		for quad in self.quad_bounds:
@@ -226,9 +229,7 @@ class Integrator:
 			for ind,diff in enumerate(lens):
 				quad_bound.append(bounds[2*ind]+quad[2*ind]*diff)
 				quad_bound.append(bounds[2*ind]+quad[2*ind+1]*diff)
-			if disp and test_func is None:
-				print('\t',quad_bound)
-			quad_vals = self._evaluate_func_at_points(func,quad_bound,test_func=test_func)
+			quad_vals = self._evaluate_func_at_points(func,quad_bound)
 			all_vals.append(quad_vals)
 		return all_vals
 

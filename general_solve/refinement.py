@@ -16,7 +16,7 @@ stripe_refinement_type	= {'vertfinecenter':0,
 # 1. setup the info
 # 2. get the info
 class RefinementPattern:
-	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
+	def	__init__(self,name,dofloc,N,dim,ords,zigzag=False):
 		self.name =	name
 		self.N = N
 		self.h = 1/N
@@ -26,6 +26,9 @@ class RefinementPattern:
 		self.xside = dofloc=='xside'
 		self.yside = dofloc=='yside'
 		self.ords =	ords
+		self.inter_d = {0:[],1:[]}
+		self.dof_near_inter = lambda loc: False
+		self.zigzag = zigzag
 		 
 		self.shifts_R =	[int((ord-1)/2)	for	ord	in self.ords]
 		self.shifts_L =	[int(ord/2)	for	ord	in self.ords]
@@ -39,6 +42,9 @@ class RefinementPattern:
 		self.b_data = {i:[[],[]] for i in range(2)} # periodic and dirichlet
 		self.i_data = {i:[[],[],[]] for i in range(2)}
 		self.g_data = {i:[[],[]] for i in range(2)}
+
+	def get_interface_lines(self):
+		return [],[]
 
 	def get_patch_id(self,loc):
 		return 0
@@ -153,17 +159,13 @@ class RefinementPattern:
 		extraL, extraR = [],[]
 		for	i in range(self.dim):
 			same = (i==0 and self.yside) or (i==1 and self.xside)
-			# if self.ords[i] == 0:
-			# 	offsets = [-1,1,-1,1]
-			# 	i_edges[i] = [val+3*H/4*s for (val,s) in zip(edges[i],offsets)]
-			# 	extraL.append(0)
-			# 	extraR.append(0)
+			i_edges[i] = [val for val in edges[i]]
 			if self.cell or same:
-				i_edges[i] = [val for val in edges[i]]
+				# i_edges[i] = [val for val in edges[i]]
 				extraL.append(0)
 				extraR.append(0)
 			else:
-				i_edges[i] = [.25,.25,.75,.75]
+				# i_edges[i] = [.25,.25,.75,.75]
 				extraL.append(H*self.shifts_L[i])
 				extraR.append(H*self.shifts_R[i])
 			
@@ -210,7 +212,8 @@ class RefinementPattern:
 						if interface([x,y]):
 							self.i_data[L][0].append([i,j])
 							if ghost([x,y]):
-								nearest_point =	self._closest_point([x,y],H)
+								nearest_point = True
+								# nearest_point =	self._closest_point([x,y],H)
 							else:
 								nearest_point =	None
 							self.i_data[L][1].append(nearest_point)
@@ -290,6 +293,27 @@ class StripeRefinement(RefinementPattern):
 						   2:['hstripe','hedge'],#hfine
 						   3:['hedge','hstripe']}
 		self.rshade = rindex_to_shade[self.rtype]
+
+		self._set_interface_dict()
+		
+	def get_interface_lines(self):
+		dofs = np.linspace(0,1,4*self.N+1)
+		if self.rdim == 0:
+			line0 = [(.25,y) for y in dofs]
+			line1 = [(.75,y) for y in dofs]
+			comps = [1,1]
+		else:
+			line0 = [(x,.25) for x in dofs]
+			line1 = [(x,.75) for x in dofs]
+			comps = [0,0]
+		return [np.asarray(line0),np.asarray(line1)],comps
+
+	def _set_interface_dict(self):
+		sgn = 1 if self.rtype%2==0 else -1
+		self.inter_d[1-self.rdim].append(.25,[0,1],sgn)
+
+		sgn = -1 if self.rtype%2==0 else 1
+		self.inter_d[1-self.rdim].append(.75,[0,1],sgn)
 
 	def get_patch_id(self, loc):
 		in_stripe = .25 <= loc[self.rdim] < .75
@@ -373,13 +397,24 @@ class StripeRefinement(RefinementPattern):
 			check, echeck, quad = self.edge_checks(H,edges,domain,loose_center)
 			myfar_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
 			ghost = lambda loc: myfar_in(loc[rdim],rdim)
+
+			if self.zigzag:
+				# sloppy fix
+				echeck = lambda loc: echeck(loc) and (loc[rdim] not in [.25-H,.75])
 		else: # fine stripe
 			check,echeck,quad = self.stripe_checks(H,edges,domain,center)
 			ghost = lambda loc: far_out(loc[rdim],rdim)
 
+			if self.zigzag:
+				# sloppy fix
+				echeck = lambda loc: echeck(loc) and (loc[rdim] not in [.25,.75-H])
+
 		interface = lambda loc: slice(loc[rdim],rdim)
 
 		low_support = lambda loc: False
+
+		if self.zigzag:
+			check = lambda loc: check(loc) and (loc[rdim] not in [.25,.75])
 
 		if self.ords[rdim] == 0:
 			ghost = lambda loc: False#interface(loc)
@@ -390,11 +425,31 @@ class StripeRefinement(RefinementPattern):
 		return doms, checks
 
 class SquareRefinement(RefinementPattern):
-	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
+	def	__init__(self,name,dofloc,N,dim,ords):
 		super().__init__(name,dofloc,N,dim,ords)
 		self.rtype = square_refinement_type[name]
 		rindex_to_shade ={0:['in','out'],1:['out','in']}
 		self.rshade = rindex_to_shade[self.rtype]
+
+		self._set_interface_dict()
+
+	def get_interface_lines(self):
+		dofs = np.linspace(.25,.75,2*self.N+1)
+
+		line0 = np.asarray([(.25,y) for y in dofs])
+		line1 = np.asarray([(.75,y) for y in dofs])
+		line2 = np.asarray([(x,.25) for x in dofs])
+		line3 = np.asarray([(x,.75) for x in dofs])
+		return [line0,line1,line2,line3],[1,1,0,0]
+		
+	def _set_interface_dict(self):
+		sgn = 1 if self.rtype==0 else -1
+		for comp in range(2):
+			self.inder_d[comp].append((.25,[.25,.75],sgn))
+
+		sgn = -1 if self.rtype==0 else 1
+		for comp in range(2):
+			self.inder_d[comp].append((.75,[.25,.75],sgn))
 	
 	def get_null_condensers(self):
 		if self.rtype:
@@ -582,15 +637,30 @@ class SquareRefinement(RefinementPattern):
 			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
 			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
 
+			if self.zigzag:
+				# sloppy fix
+				eline_check = lambda x: x not in [.25,.75-H]
+				echeck = lambda loc: echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+
 		else: # fine edges
 			check, echeck, quad, low_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
 			ghost_x =	lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
 			ghost	= lambda loc: self._all_d(ghost_x,loc)
 
+			if self.zigzag:
+				# sloppy fix
+				eline_check = lambda x: x not in [.25-H,.75]
+				echeck = lambda loc: echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+
 		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
 		interface	= lambda loc: check1(loc) or check2(loc)
+
+		# sloppy fix
+		if self.zigzag:
+			line_check = lambda x: x not in [.25,.75]
+			check = lambda loc: check(loc) and line_check(loc[0]) and line_check(loc[1])
 
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]

@@ -8,7 +8,7 @@ refinement_type = {'uniform':0,
 				   'coarsecenter':2}
 
 class Patch:
-	def __init__(self,N,dim,refinement_info,dtype,ords,level=0,ghost_off=False):
+	def __init__(self,N,dim,refinement_info,dtype,ords,level=0,ghost_off=False,inter_d=None):
 		self.N = (1+level)*N
 		self.h = 1/self.N
 		self.dim = dim
@@ -23,6 +23,7 @@ class Patch:
 		self.yside = dtype == 'yside'
 		self.ords = ords
 		self.Ls = [int(ord/2) for ord in self.ords]
+		self.inter_d = inter_d
 
 		self.alt_dof = {}
 		self.alt_el = {}
@@ -158,6 +159,7 @@ class Patch:
 			return
 		for (ind,ghost_loc) in zip(inds,ghosts):
 			dof_lookup_id = self._get_lookup_id_from_ind(ind)
+			self.dofs[dof_lookup_id].set_phi(self.inter_d)
 			if ghost_loc is not None:
 				self.interface_ghosts.append(dof_lookup_id)
 				### FIND CLOSEST POINT FOR EVALUATION
@@ -166,6 +168,15 @@ class Patch:
 				self.interface_dofs.append(dof_lookup_id)
 
 		self.ghost_count = len(self.interface_ghosts)
+
+	def evaluate_interface_lines(self,lines):
+		evals = np.zeros((len(self.interface_dofs),len(lines)))
+		for i,dof_id in enumerate(self.interface_dofs):
+			dof = self.dofs[dof_id]
+			for j,loc in enumerate(lines):
+				evals[i,j] = dof.phi(loc)
+		return evals
+
 
 	def evaluate_interface_points(self,eval_points):
 		evals = np.zeros((len(eval_points),len(self.interface_dofs)))
@@ -197,9 +208,17 @@ class Patch:
 		# print(np.linalg.eig(ghost_arr)[0],np.sum(ghost_arr,axis=0),np.sum(ghost_arr,axis=1),sep='\n')
 		return ghost_arr#np.linalg.inv(ghost_arr)
 
-	def evaluate_interface_ghosts(self):
+	def evaluate_interface_ghosts(self,lines):
 		if len(self.interface_ghosts) == 0:
 			return None
+
+		evals = np.zeros((len(self.interface_ghosts),len(lines)))
+		for i,dof_id in enumerate(self.interface_ghosts):
+			dof = self.dofs[dof_id]
+			for j,loc in enumerate(lines):
+				evals[i,j] = dof.phi(loc)
+		return evals
+
 
 		return self.check_evaluate_interface_ghosts()
 		ghosts = []

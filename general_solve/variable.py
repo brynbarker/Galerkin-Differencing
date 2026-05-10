@@ -83,6 +83,7 @@ class SingleComponentVariable:
 		self.curr_errs = [None,None]
 
 		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname,ghost_off=ghost_off)
+		self.mesh.set_quadrature(self.integrator)
 		self.h = self.mesh.h
 
 		self.constraints = ConstraintOperator(self.mesh)
@@ -162,25 +163,34 @@ class SingleComponentVariable:
 		for p in self.mesh.patches:
 			for lookup_id in p.dofs:
 				dof = p.dofs[lookup_id]
-				if self.dim == 2:
+				try:
 					tmp.append(func(dof.x,dof.y))
-				if self.dim == 3:
-					tmp.append(func(dof.x,dof.y,dof.z))
+				except:
+					tmp.append(func([dof.x,dof.y]))
 		return np.array(tmp)
 
+	def evaluate_on_domain(self,func):
+		tmp = []
+		for dof_id in self.constraints.true_dofs:
+			dof = self.constraints.get_dof(dof_id)
+			try:
+				tmp.append(func(dof.x,dof.y))
+			except:
+				tmp.append(func([dof.x,dof.y]))
+		return np.array(tmp)
 
 	def Linf_error(self,sol_vec,raw=False):
 		if self.true_sol_vec is None:
 			tmp = []
-			for p in self.mesh.patches:
-				for lookup_id in p.dofs:
-					dof = p.dofs[lookup_id]
-					if self.dim == 2:
-						tmp.append(self.varfunc(dof.x,dof.y))
-					if self.dim == 3:
-						tmp.append(self.varfunc(dof.x,dof.y,dof.z))
-			self.true_sol_vec = np.array(tmp)
-		raw_err = (sol_vec-self.true_sol_vec)[self.constraints.true_dofs]
+			for dof_id in self.constraints.true_dofs:
+				dof = self.constraints.get_dof(dof_id)
+				if self.dim == 2:
+					tmp.append(self.varfunc(dof.x,dof.y))
+				if self.dim == 3:
+					tmp.append(self.varfunc(dof.x,dof.y,dof.z))
+				self.true_sol_vec = np.array(tmp)
+
+		raw_err = sol_vec-self.true_sol_vec
 
 		if raw:
 			return raw_err
@@ -207,20 +217,10 @@ class SingleComponentVariable:
 
 				
 		if not proj and not helm and sum(self.ords)==1:
-			# self.my_ns = scla.null_space(lhs.todense()).T#self.constraints.construct_null_space()
 			self.my_ns = self.constraints.construct_null_space()
 			for v in self.my_ns:
-				# print('before',v@rhs)
 				rhs -= (v@ rhs)*v
 
-
-		# self.full_ns = scla.null_space(lhs.todense()).T
-		# for v in self.full_ns:
-		# 	proj_scale = v @ rhs
-		# 	print(proj_scale)
-		# 	if True:#abs(proj_scale) > 1e-11:
-		# 		# print('rhs in nullspace',proj_scale)
-		# 		rhs -= proj_scale*v
 
 		self.sp_lhs = lhs
 		self.lhs = lhs.todense()
@@ -228,9 +228,7 @@ class SingleComponentVariable:
 
 
 		try:
-			# results = krylov.gmres(lhs,rhs,tol=1e-14)
-			# assert results[1].success
-			# x_star = results[0]
+			assert False
 			x_star,conv = sla.gmres(lhs,rhs,rtol=1e-14)
 			assert conv == 0
 		except:
@@ -238,12 +236,6 @@ class SingleComponentVariable:
 			print('krylov issue')
 			self.totest = [lhs,rhs]
 
-		if not proj and not helm and sum(self.ords)==1:
-			# ns = self.constraints.construct_null_space()
-			for v in self.my_ns:
-				# print('after',v@x_star)
-				# x_star -= (v@ x_star)*v
-				pass
 		self.x_star = x_star
 		if proj:
 			self.x = x_star
@@ -252,15 +244,19 @@ class SingleComponentVariable:
 				
 			self.x = x_star - alpha 
 
-		sol_vec = C.dot(self.x)
+		coef_vec = C.dot(self.x)
+		sol_vec = self.evaluate_on_domain(self.sol(coef_vec))
 
-		op.set_solution_vector(sol_vec)
-		err = self.error(sol_vec)
+
+		op.set_solution_coef_vector(coef_vec)
+		op.set_solution(sol_vec)
+		err = self.error(coef_vec)
 		Linf_err = self.Linf_error(sol_vec)
 		op.set_error(err)
 		op.set_error(Linf_err,Linf=True)
 
 		self.curr_sol = sol_vec
+		self.curr_coefs = coef_vec
 		self.curr_errs = [err,Linf_err]
 
 		if disp:
@@ -321,12 +317,12 @@ class SingleComponentVariable:
 		err_v = np.linalg.norm(v_lhs-v_F)
 		return err_u,err_v
 
-	def vis_dof_sol(self,sol_vec,err=False,true_list=None,log=True,split=True):
+	def vis_dof_sol(self,sol_vec,err=False,log=True,split=True):
 		if err:
 			sol_vec = abs(self.true_sol_vec-sol_vec)
 		else:
 			log = False
-		self.mesh.vis_dof_sol(sol_vec,true_list=true_list,log=log,split=split)
+		self.mesh.vis_dof_sol(sol_vec,true_list=self.constraints.true_dofs,log=log,split=split)
 
 	def setup_laplace(self,mu=1):
 		if self.operators['lap'] is None:
