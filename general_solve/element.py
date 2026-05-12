@@ -12,6 +12,7 @@ class Element:
 		self.ind = inds
 		self.ords = ords
 		self.regular = cart
+
 		if dim == 2:
 			self.i,self.j = inds
 			self.x,self.y = loc
@@ -49,8 +50,6 @@ class Element:
 		for ii in range(self.ords[1]+1):
 			for jj in range(self.ords[0]+1):
 				self.dof_lookup_ids.append(strt+xlen*ii+jj)
-		if not self.regular:
-			self._compute_jacobian()
 		return
 
 	def add_dofs_3d(self,strt,xlen):
@@ -66,6 +65,7 @@ class Element:
 		for dof_lookup_id in self.dof_lookup_ids:
 			dof = dofs[dof_lookup_id]
 			dof.add_element(self)
+
 			self.dof_list.append(dof)
 			self.dof_ids.append(dof.ID)
 		return
@@ -87,11 +87,87 @@ class Element:
 	def get_dof_ids(self,id=None):
 		return self.dof_ids
 
-class TrapElement(Element):
-	def __init__(self, ID, dim, inds, loc, h, ords):
+class NonCartElement(Element):
+	def __init__(self,ID,ords,corner_nodes):
+		inds = corner_nodes[0].ind
+		loc = corner_nodes[0].loc
+		h = corner_nodes[1].h
+		dim = corner_nodes[0].dim
+
+		self.dof_len = (ords[0]+1)*(ords[1]+1)
 		super().__init__(ID, dim, inds, loc, h, ords, cart=False)
 
-	def set_corners(self,corner_nodes):
+		if corner_nodes[1].x == corner_nodes[-1].x:
+			if corner_nodes[0].x < corner_nodes[1].x:
+				self.map_type = 0
+			else:
+				self.map_type = 1
+		else:
+			assert corner_nodes[1].y == corner_nodes[-1].y
+			if corner_nodes[0].y < corner_nodes[1].y:
+				self.map_type = 2
+			else:
+				self.map_type = 3
+
+		self.corners = corner_nodes
+		self.dof_list = [c for c in corner_nodes]
+		self.dof_ids = []
+		self.local_dof_ids = [c.ID for c in self.dof_list]
+
+		self.quads = [True]*4
+
+		self._set_corners()
+
+	def set_jacobian(self,d_j_vals):
+		self.J_vals = d_j_vals[self.map_type]
+
+	def _set_corners(self):
+		pass
+
+	def _preorder_dofs(self):
+		tmp_list = self.dof_list
+		return self._order_dofs(tmp_list)
+
+	def _order_dofs(self,tmp_list=None):
+		if tmp_list is None:
+			tmp_list = self.dof_list
+
+		A,B,C,D,e0,e1 = tmp_list
+		if self.map_type == 0:
+			self.dof_list = [e0,A,B,e1,C,D]
+		elif self.map_type == 1:
+			self.dof_list = [e0,B,A,e1,D,C]
+		elif self.map_type == 2:
+			self.dof_list = [e0,e1,A,C,B,D]
+		elif self.map_type == 3:
+			self.dof_list = [e0,e1,B,D,A,C]
+		else:
+			raise ValueError('unknow map type')
+
+		self.local_dof_ids = [dof.ID for dof in self.dof_list]
+
+	def set_dof_ids(self,id_shift):
+		for dof in self.dof_list:
+			if dof.h == self.h: # fine
+				self.dof_ids.append(dof.ID+id_shift)
+			else:
+				self.dof_ids.append(dof.ID)
+
+	def add_dof(self,dof):
+		if dof not in self.dof_list:
+			self.dof_list.append(dof)
+			self.local_dof_ids.append(dof.ID)
+
+		if len(self.dof_list) == self.dof_len:
+			self._order_dofs()
+
+
+class TrapElement(NonCartElement):
+	def __init__(self,ID,ords,corner_nodes):
+		super().__init__(ID,ords,corner_nodes)
+
+	def _set_corners(self):
+		corner_nodes = [c for c in self.corners]
 		xa,xb,xc,xd = [n.x for n in corner_nodes]
 		ya,yb,yc,yd = [n.y for n in corner_nodes]
 		self.x = xa
@@ -99,6 +175,14 @@ class TrapElement(Element):
 
 		x_coefs = [xa,xb-xa,xc-xa,xd+xa-xb-xc]
 		y_coefs = [ya,yb-ya,yc-ya,yd+ya-yb-yc]
+
+		def my_transform(xi,eta): # xi,eta \in [0,1]
+			vander = [0*xi+1,xi,eta,xi*eta]
+			x = sum([v*c for (v,c) in zip(vander,x_coefs)])
+			y = sum([v*c for (v,c) in zip(vander,y_coefs)])
+			return x,y
+
+		self.transform = my_transform
 
 		if 0 in x_coefs:
 			slopes = [(yb-ya)/(xb-xa), (yd-yc)/(xd-xc)]
@@ -111,7 +195,7 @@ class TrapElement(Element):
 
 		self.check_loc = lambda x,y: self.parralel(x,y) and self.slant(x,y)
 
-		def my_transform(x,y):
+		def my_inv_transform(x,y):
 			if 0 in x_coefs:
 				xi = (x-x_coefs[0])/x_coefs[1]
 				eta = (y-y_coefs[0]-y_coefs[1]*xi)/(y_coefs[-2]+y_coefs[-1]*xi)
@@ -119,33 +203,17 @@ class TrapElement(Element):
 				eta = (y-y_coefs[0])/y_coefs[1]
 				xi = (x-x_coefs[0]-x_coefs[1]*xi)/(x_coefs[-2]+x_coefs[-1]*eta)
 			return xi*self.h,eta*self.h
-		self.transform = my_transform
+		self.inv_transform = my_inv_transform
 
-		self.corners = corner_nodes
 
-	def _compute_jacobian(self):
-		x_coefs = [n.x for n in self.corners]
-		y_coefs = [n.y for n in self.corners]
-		all_coefs = [x_coefs,y_coefs]
+class TriElement(NonCartElement):
+	def __init__(self,ID,ords,corner_nodes):
+		super().__init__(ID,ords,corner_nodes)
+		self.dof_len -= 1
+		self.tri = True
 
-		def jac(xi,eta):
-			vars = [xi,eta]
-			J = np.zeros((2,2))
-			for i,var in enumerate(vars):
-				for j,coefs in enumerate(all_coefs):
-					c0 = coefs[i+1]-coefs[0]
-					c1 = coefs[3]-coefs[2-i]
-					J[i,j] = c0*(1-var)+c1*var
-			Jinv = np.array([[J[1,1],-J[0,1]],[-J[1,0],J[0,0]]])
-			Jdet = J[0,0]*J[1,1]-J[0,1]*J[1,0]
-			return Jdet*Jinv
-		self.jac = jac
-
-class TriElement(Element):
-	def __init__(self, ID, dim, inds, loc, h, ords):
-		super().__init__(ID, dim, inds, loc, h, ords, cart=False)
-
-	def set_corners(self,corner_nodes):
+	def _set_corners(self):
+		corner_nodes = [c for c in self.corners]
 		xa,xb,xc = [n.x for n in corner_nodes]
 		ya,yb,yc = [n.y for n in corner_nodes]
 		self.x = xa
@@ -168,7 +236,17 @@ class TriElement(Element):
 
 		self.check_loc = lambda x,y: self.parralel(x,y) and self.slant(x,y)
 
-		def my_transform(x,y):
+		def my_transform(xi,eta):
+			if xb == xc:
+				x = A*xi+xa
+				y = (eta*(C-B)+B)*(x-xa)+ya
+			else:
+				y = A*eta+ya
+				x = (xi*(C-B)+B)*(y-ya)+xa
+			return x,y
+		self.transform = my_transform
+
+		def my_inv_transform(x,y):
 			if xb == xc:
 				eta = ((y-ya)/(x-xa) - B)/(C-B)
 				xi = (x-xa)/A
@@ -176,17 +254,11 @@ class TriElement(Element):
 				xi = ((x-xa)/(y-ya) - B)/(C-B)
 				eta = (y-ya)/A
 			return xi*self.h,eta*self.h
-		self.transform = my_transform
 
-		self.corners = corner_nodes
-
-	def _compute_jacobian(self):
-		def jac(xi,eta):
-			myJ = self.J[xi,eta]
-			Jinv = np.array([[myJ[1,1],-myJ[0,1]],[-myJ[1,0],myJ[0,0]]])
-			Jdet = myJ[0,0]*myJ[1,1]-myJ[0,1]*myJ[1,0]
-			return Jdet*Jinv
-		self.jac = lambda xi,eta: jac(xi,eta)
+	def _preorder_dofs(self):
+		A,B,C,e0,e1 = self.dof_list
+		tmp_list = [A,B,A,C,e0,e1]
+		return self._order_dofs(tmp_list)
 
 class PseudoElement:
 	def __init__(self):

@@ -5,6 +5,8 @@ from general_solve.refinement import StripeRefinement
 from general_solve.refinement import SquareRefinement
 from general_solve.patch import Patch
 
+from general_solve import globals
+
 refinement_class = {'uniform':UniformRefinement,
 				   'stripe':StripeRefinement,
 				   'square':SquareRefinement}
@@ -15,15 +17,17 @@ refinement_index = {'uniform':0,
 
 class Mesh:
 	def __init__(self,N,dim,ords,dofloc='node',
-			     rtype='uniform',rname=None,ghost_off=False):#,ords=[3,3]):
+			     rtype='uniform',rname=None,ghost_off=False,
+				 zigzag=False):
 		self.N = N 
 		self.h = 1/N
 		self.dim = dim
 		self.rtype = rtype
 		self.rindex = refinement_index[rtype]
 		rClass = refinement_class[rtype]
-		self.refinement = rClass(rname,dofloc,N,dim,ords)
+		self.refinement = rClass(rname,dofloc,N,dim,ords,zigzag)
 		self.dofloc = dofloc
+		self.zigzag = zigzag
 
 		coarse_info = self.refinement.get_coarse_info()
 		fine_info = self.refinement.get_fine_info()
@@ -32,6 +36,7 @@ class Mesh:
 		self.patches = [coarse_patch,fine_patch]
 
 		self.dof_id_shift = len(coarse_patch.dofs)
+
 
 	def set_quadrature(self,integrator):
 		self.pts = np.array(integrator.points)
@@ -46,30 +51,21 @@ class Mesh:
 			points = []
 				
 			val = line[0][1-comp]
-			# tmp = [val]*len(pts)
 			nodes = [nd[comp] for nd in line]
 			for left in nodes[:-1]:
 				points += list(pts+left)
-				# if comp:
-				# 	plt.plot(tmp,pts+left,'.')
-				# else:
-				# 	plt.plot(pts+left,tmp,'.')
-			weights = list(wts) * len(nodes[:-1])
 
+			weights = list(wts) * len(nodes[:-1])
 			all_points[comp] += points
 			other_points = [val]*len(points)
-			# if comp:
-			# 	plt.plot(other_points,points,'.')
-			# else:
-			# 	plt.plot(points,other_points,'.')
+			 
 			all_points[1-comp] += other_points
 			all_weights += weights
-			# print(all_points)
 
-		# plt.plot(all_points[0],all_points[1],'.')
-		# plt.show()
-		# plt.plot(all_points[0],all_points[1],'.')
-		# plt.show()
+		if globals.DEBUG:
+			plt.plot(all_points[0],all_points[1],'.')
+			plt.show()
+
 		return np.asarray(all_points).T, np.asarray(all_weights)
 
 	def loc_to_el(self,loc):
@@ -224,15 +220,15 @@ class Mesh:
 
 		plt.show()
 	
-	def vis_dof_sol(self,U,true_list=None,shrunk=None,log=True,split=True):
+	def vis_dof_sol(self,U,true_list=None,log=True,split=True):
 		
 		if split:
 			fig,axes = plt.subplots(1,2,figsize=(20,10))
 		else:
 			fig,ax = plt.subplots(figsize=(10,10))
 
-		c_vals = []#{0:[],1:[]}
-		locs = []#{0:[],1:[]}
+		c_vals = []
+		locs = []
 
 		id_shift = len(self.patches[0].dofs)
 		cbar_loc = ['left','right']
@@ -241,52 +237,46 @@ class Mesh:
 			if split: 
 				ax = axes[level]
 				c_vals,locs = [],[]
-			try:
-				H = self.h/(1+level)
-				dom = np.linspace(0,1,(1+level)*self.N+1)
-				ext_dom = np.linspace(-2*H,1+2*H,(1+level)*self.N+5)
-				eps = H/8
-				for x in dom:
-					ax.plot([x,x],[0,1],'grey',zorder=0)
-					ax.plot([0,1],[x,x],'grey',zorder=0)
-				for x in ext_dom:
-					ax.plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
-					ax.plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
-				if self.rindex==2:
-					ax.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 
-				for id in self.patches[level].dofs:
-					dof = self.patches[level].dofs[id]
-					global_id = dof.ID+id_shift*level
-					if true_list is None or global_id in true_list:
-						if true_list is None: u_val = U[global_id]
-						else:
-							true_index = true_list.index(global_id)
-							u_val = U[true_index]
-						c_vals.append(u_val)
-						locs.append(dof.loc)
+			H = self.h/(1+level)
+			dom = np.linspace(0,1,(1+level)*self.N+1)
+			ext_dom = np.linspace(-2*H,1+2*H,(1+level)*self.N+5)
+			for x in dom:
+				ax.plot([x,x],[0,1],'grey',zorder=0)
+				ax.plot([0,1],[x,x],'grey',zorder=0)
+			for x in ext_dom:
+				ax.plot([x,x],[-2*H,1+2*H],'grey',ls=':',zorder=0)
+				ax.plot([-2*H,1+2*H],[x,x],'grey',ls=':',zorder=0)
+			if self.rindex==2:
+				ax.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 
-
-				tmp = np.array(locs).T
-				if tmp.size > 0:
-					x,y = tmp
-				else:
-					x,y = [],[]
-				if split or level:
-					if log:
-						logvals = [np.log(cval) for cval in c_vals]
-						plot = ax.scatter(x,y,c=logvals,cmap='jet',zorder=1)	
+			for id in self.patches[level].dofs:
+				dof = self.patches[level].dofs[id]
+				global_id = dof.ID+id_shift*level
+				if true_list is None or global_id in true_list:
+					if true_list is None: u_val = U[global_id]
 					else:
-						plot = ax.scatter(x,y,c=c_vals,cmap='jet',zorder=1)	
-					fig.colorbar(plot,location=cbar_loc[level])
+						true_index = true_list.index(global_id)
+						u_val = U[true_index]
+					c_vals.append(u_val)
+					locs.append(dof.loc)
 
-					ax.set_aspect('equal')
+			tmp = np.array(locs).T
+			if tmp.size > 0:
+				x,y = tmp
+			else:
+				x,y = [],[]
+			if split or level:
+				if log:
+					logvals = [np.log(cval) for cval in c_vals]
+					plot = ax.scatter(x,y,c=logvals,cmap='jet',zorder=1)	
 				else:
-					plot = ax.plot(x,y,'ko',ms=15,alpha=.5,fillstyle='none')
+					plot = ax.scatter(x,y,c=c_vals,cmap='jet',zorder=1)	
+				fig.colorbar(plot,location=cbar_loc[level])
 
-			except:
-				print(uhoh)
-				pass
+				ax.set_aspect('equal')
+			else:
+				plot = ax.plot(x,y,'ko',ms=15,alpha=.5,fillstyle='none')
 
 		plt.show()
 

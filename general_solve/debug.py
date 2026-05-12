@@ -1,6 +1,29 @@
 import numpy as	np
 import matplotlib.pyplot as	plt
 
+def check_continuity(var):
+    eps = 1e-3
+    doms = [np.linspace(.25-eps,.25+eps),np.linspace(.75-eps,.75+eps)]
+    rand_x = np.random.random(len(var.constraints.true_dofs))
+    rand_u = var.constraints.spC.dot(rand_x)
+    rand_sol = var.sol(rand_u)
+    plt.figure(figsize=(50,10))
+    for j,other in enumerate(np.linspace(.15,.85,8)):
+        for i,dom in enumerate(doms):
+            plt.subplot(2,8,8*i+j+1)
+            mymin,mymax = 1e10,-1e10
+            rand_vals_0 = [rand_sol([x,other]) for x in dom]
+            plt.plot(dom,rand_vals_0,label='y = '+str(round(other,3)),lw=3)
+            rand_vals_1 = [rand_sol([other,x]) for x in dom]
+            plt.plot(dom,rand_vals_1,label='x = '+str(round(other,3)),lw=3)
+            mymin = min(mymin,min(rand_vals_0+rand_vals_1))
+            mymax = max(mymax,max(rand_vals_0+rand_vals_1))
+            if i:plt.plot([.75,.75],[mymin,mymax],'k:')
+            else:plt.plot([.25,.25],[mymin,mymax],'k:')
+            plt.xticks([min(doms[i]),.25+.5*i,max(doms[i])])
+            plt.title(str(round(other,3)),fontsize=20)
+            # plt.legend()
+    plt.show()
 
 def	matvis(m):
 	if not isinstance(m,list):

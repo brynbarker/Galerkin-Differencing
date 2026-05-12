@@ -8,7 +8,7 @@ refinement_type = {'uniform':0,
 				   'coarsecenter':2}
 
 class Patch:
-	def __init__(self,N,dim,refinement_info,dtype,ords,level=0,ghost_off=False,inter_d=None):
+	def __init__(self,N,dim,refinement_info,dtype,ords,level=0,ghost_off=False):
 		self.N = (1+level)*N
 		self.h = 1/self.N
 		self.dim = dim
@@ -23,7 +23,6 @@ class Patch:
 		self.yside = dtype == 'yside'
 		self.ords = ords
 		self.Ls = [int(ord/2) for ord in self.ords]
-		self.inter_d = inter_d
 
 		self.alt_dof = {}
 		self.alt_el = {}
@@ -44,11 +43,6 @@ class Patch:
 		if self.comp is not None:
 			keeps = np.sum(self.sum_arr,axis=1)!=0
 			self.sum_arr = self.sum_arr[keeps,:]
-		if False:
-			self.vis()
-			self.vis_interface_eval_points()
-			plt.show()
-
 
 
 	def get_dof(self,non_lookup_id):
@@ -153,13 +147,14 @@ class Patch:
 		self.interface_dofs = []
 		self.interface_ghosts = []
 		self.interface_points = []
+		self.full_interface = []
 
 		if self.ghost_off:
 			self.ghost_count = 0
 			return
 		for (ind,ghost_loc) in zip(inds,ghosts):
 			dof_lookup_id = self._get_lookup_id_from_ind(ind)
-			self.dofs[dof_lookup_id].set_phi(self.inter_d)
+			self.full_interface.append(dof_lookup_id)
 			if ghost_loc is not None:
 				self.interface_ghosts.append(dof_lookup_id)
 				### FIND CLOSEST POINT FOR EVALUATION
@@ -184,50 +179,31 @@ class Patch:
 		for i,loc in enumerate(eval_points):
 			for j,dof_id in enumerate(self.interface_dofs):
 				dof = self.dofs[dof_id]
-				diff = (loc[0]-dof.x)/self.h
-				#if diff < -1 or diff > 2:
-				#	tmp = dof.phi(loc)
-				#	if tmp != 0:
-				#		print(tmp)
 				evals[i,j] = dof.phi(loc)
 		return evals
 
-	def check_evaluate_interface_ghosts(self):
+	def evaluate_interface_ghosts(self,lines=None):
 		if len(self.interface_ghosts) == 0:
 			return None
 
-		tmp = len(self.interface_ghosts)
-		ghost_arr = np.zeros((tmp,tmp))
-		for i,loc in enumerate(self.interface_points):
-			for j,dof_id in enumerate(self.interface_ghosts):
+		if globals.LAG:
+			tmp = len(self.interface_ghosts)
+			ghost_arr = np.zeros((tmp,tmp))
+			for i,loc in enumerate(self.interface_points):
+				for j,dof_id in enumerate(self.interface_ghosts):
+					dof = self.dofs[dof_id]
+					val = dof.phi(loc)
+					ghost_arr[i,j] = val
+			return ghost_arr
+
+		else:
+			evals = np.zeros((len(self.interface_ghosts),len(lines)))
+			for i,dof_id in enumerate(self.interface_ghosts):
 				dof = self.dofs[dof_id]
-				val = dof.phi(loc)
-				ghost_arr[i,j] = val
-		# plt.matshow(ghost_arr)
-		# plt.show()
-		# print(np.linalg.eig(ghost_arr)[0],np.sum(ghost_arr,axis=0),np.sum(ghost_arr,axis=1),sep='\n')
-		return ghost_arr#np.linalg.inv(ghost_arr)
+				for j,loc in enumerate(lines):
+					evals[i,j] = dof.phi(loc)
+			return evals
 
-	def evaluate_interface_ghosts(self,lines):
-		if len(self.interface_ghosts) == 0:
-			return None
-
-		evals = np.zeros((len(self.interface_ghosts),len(lines)))
-		for i,dof_id in enumerate(self.interface_ghosts):
-			dof = self.dofs[dof_id]
-			for j,loc in enumerate(lines):
-				evals[i,j] = dof.phi(loc)
-		return evals
-
-
-		return self.check_evaluate_interface_ghosts()
-		ghosts = []
-		for loc,dof_id in zip(self.interface_points,self.interface_ghosts):
-			dof = self.dofs[dof_id]
-			val = dof.phi(loc)
-			assert abs(val)>1e-12
-			ghosts.append(val)
-		return ghosts
 
 	def vis(self,rtype=None):
 		# fig = plt.figure(figsize=(10,10))

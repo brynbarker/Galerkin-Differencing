@@ -22,14 +22,6 @@ class DoF:
 		self.h = h
 		self.elements = {}
 
-	def set_phi(self,inter_d=None):
-		self.interface = True
-		self.phi = lambda xy: phi_2d_eval(self.ords,xy[0],xy[1],
-								          h,self.x,self.y,inter_d)
-		
-		self.dphi = lambda xy: dphi_2d_eval(self.ords,xy[0],xy[1],
-								            h,self.x,self.y,inter_d)
-
 
 	def add_element(self,e):
 		if e.ID not in self.elements.keys():

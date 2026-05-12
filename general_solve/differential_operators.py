@@ -2,7 +2,7 @@ import numpy as np
 from scipy import sparse
 
 class DifferentialOperator:
-	def __init__(self,mesh,integrator):
+	def __init__(self,mesh,integrator,zigzag=None):
 		self.mesh = mesh
 		self.integrator = integrator
 		self.dim = mesh.dim
@@ -17,6 +17,17 @@ class DifferentialOperator:
 		
 		self.element_map = lambda e: e
 		self.test_sizes = [len(p.dofs) for p in mesh.patches]
+
+		if zigzag is not None:
+			traps,tris = zigzag.trapezoid_elements,zigzag.triangle_elements
+			self.set_zigzag(traps+tris)
+		else:
+			self.zigzag = False
+		
+
+	def set_zigzag(self,extra_elements):
+		self.zigzag = True
+		self.zigzag_elements = extra_elements
 
 	def _get_blocks(self):
 		if len(self.blocks) == self.dim:
@@ -42,6 +53,58 @@ class DifferentialOperator:
 			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,test_size))
 			self.blocks.append(spA)
 
+	def _add_zigzag_blocks(self):
+		if self.lookup is None:
+			print('operator quantities not specified')
+			return
+
+		size,test_size = self.spA.shape
+		Ar, Ac, Ad = [],[],[]
+
+		for e in self.zigzag_elements:
+			test_e = e#self.element_map(e)
+			for id,quad in enumerate(e.quads):
+				if quad:
+					test_ids = test_e.get_dof_ids(id)
+					for trial_id,dof in enumerate(e.dof_list):
+						Ar += [dof.ID]*len(test_ids)
+						Ac += test_ids
+
+						j_vals = e.J_vals[id][trial_id]
+						Ad += list(j_vals*self.lookup[id][trial_id])
+		self.spA_noncart = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,test_size))
+
+		self.spA_cartonly = self.spA.copy()
+		self.spA = self.spA_cartonly+self.spA_noncart
+
+	def _add_zigzag_force(self,ffunc):
+		# if self.F is not None:
+			# return 
+
+		# self.d_dofid_to_e_list = {0:{},1:{}}
+		size = self.F.size
+		self.F_noncart = np.zeros(size)
+		local_bounds = [0,1,0,1]
+
+		for e in self.zigzag_elements:
+			vol = (e.h/2)**self.dim
+			
+			fvals = self.integrator._evaluate_func_on_element(ffunc,
+										local_bounds,wrap=e.transform)
+			for test_id,dof in enumerate(e.dof_list):
+				# if dof.ID in self.d_dofid_to_e_list[p_id]:
+				# 	self.d_dofid_to_e_list[p_id][dof.ID].append(e.ID) 
+				# else:
+				# 	self.d_dofid_to_e_list[p_id][dof.ID] = [e.ID]
+				for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
+					if quad:
+						phi_val = self.integrator.phi_vals[quad_id][test_id]
+						val = self.integrator._compute_product_integral(phi_val,f_val,vol)
+						self.F_noncart[dof.ID] += val*e.J_vals[quad_id][test_id]
+
+		self.F_cartonly = self.F.copy()
+		self.F = self.F_cartonly+self.F_noncart
+
 	def _build_system(self,scale0=1,scale1=1):
 		if self.spA is not None:
 			return 
@@ -51,6 +114,9 @@ class DifferentialOperator:
 		self.spA = sparse.bmat(np.array(
 			[[self.blocks[0]*scale0,None],
 			 [None,self.blocks[1]*scale1]]),format='csc')
+
+		if self.zigzag:
+			self._add_zigzag_blocks()
 
 	def _build_force(self,ffunc):
 		# if self.F is not None:
@@ -81,25 +147,27 @@ class DifferentialOperator:
 
 		self.F = np.hstack(myFs)
 
+		if self.zigzag:
+			self._add_zigzag_force(ffunc)
+
 	def set_solution_coef_vector(self,coef_vec):
 		self.coef_vec = coef_vec 
 
-	def set_solution(self,sol_vec):
-		self.sol_vec = sol_vec 
+	def set_solution_at_dofs(self,sol_at_dofs_vec):
+		self.sol_at_dofs_vec = sol_at_dofs_vec 
 
-	def set_error(self,err,Linf=False):
-		if Linf:
-			self.Linf_err = err
-		else:
-			self.err = err
+	def set_error(self,errs):
+		self.errs = errs
+		self.L2 = errs[0]
+		self.L1 = errs[1]
+		self.Linf = errs[2]
 
 	def set_sys_to_check(self,sys):
 		self.cTkc = sys
 
-
 class LaplaceOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,mu=1):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,mu=1,zigzag=None):
+		super().__init__(mesh,integrator,zigzag)
 		self.mu = mu 
 
 		self.lookup = integrator.get_k_vals()
@@ -112,8 +180,8 @@ class LaplaceOperator(DifferentialOperator):
 		self.F *= -1
 
 class ProjectionOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,zigzag=None):
+		super().__init__(mesh,integrator,zigzag)
 		scales = [p.h**self.mesh.dim for p in self.mesh.patches]
 		self.scale0 = scales[0]
 		self.scale1 = scales[1]
@@ -124,8 +192,8 @@ class ProjectionOperator(DifferentialOperator):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
 class DerivativeOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,el_map,test_sizes,comp):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,el_map,test_sizes,comp,zigzag=None):
+		super().__init__(mesh,integrator,zigzag)
 
 		def el_map_comp(e):
 			new_e = el_map[e]
@@ -151,11 +219,11 @@ class DerivativeOperator(DifferentialOperator):
 
 class DivergenceOperator:
 	def __init__(self,mesh,integrator,l_dphivals,el_map,
-			     local_test_size,test_sizes):
+			     local_test_size,test_sizes,zigzag=None):
 		self.diff_ops = []
 
-		self.pux = DerivativeOperator(mesh,integrator,el_map,test_sizes[0],0)
-		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_sizes[1],1)
+		self.pux = DerivativeOperator(mesh,integrator,el_map,test_sizes[0],0,zigzag=zigzag)
+		self.pvy = DerivativeOperator(mesh,integrator,el_map,test_sizes[1],1,zigzag=zigzag)
 
 		self.lookup = integrator.get_div_vals(l_dphivals,local_test_size)
 		self.pux.set_lookup(self.lookup[0])

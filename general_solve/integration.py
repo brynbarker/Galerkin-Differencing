@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import copy
 from general_solve import shape_functions
+from general_solve import globals
 
 class Integrator:
 	def __init__(self,qpn,dim,ords):
@@ -75,7 +76,10 @@ class Integrator:
 		lab = 'k' if k else 'm'
 		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
 		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
-		fname = fpath+'{}_spline_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+		if globals.LAG:
+			fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+		else:
+			fname = fpath+'{}_spline_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
 
 		try:
 			with open(fname,'rb') as handle:
@@ -189,7 +193,7 @@ class Integrator:
 			vals[j] = func(xinput)
 		return vals
 
-	def _evaluate_func_at_points(self,func,bounds,arr=False):
+	def _evaluate_func_at_points(self,func,bounds,arr=False,wrap=None):
 		if self.dim == 2:
 			a,b,c,d = bounds
 			xmid, ymid = (a+b)/2, (c+d)/2
@@ -202,6 +206,8 @@ class Integrator:
 				for i in range(self.qpn):
 					xinput = xscale * self.points[j] + xmid
 					yinput = yscale * self.points[i] + ymid
+					if wrap is not None: 
+						xinput,yinput = wrap(xinput,yinput)
 					vals[i,j] = func(xinput,yinput)
 
 		if self.dim == 3:
@@ -221,7 +227,7 @@ class Integrator:
 						vals[i,j,k] = func(xinput,yinput,zinput)
 		return vals
 
-	def _evaluate_func_on_element(self,func,bounds):
+	def _evaluate_func_on_element(self,func,bounds,wrap=None):
 		lens = np.array(bounds[1::2])-np.array(bounds[::2])
 		all_vals = []
 		for quad in self.quad_bounds:
@@ -229,7 +235,7 @@ class Integrator:
 			for ind,diff in enumerate(lens):
 				quad_bound.append(bounds[2*ind]+quad[2*ind]*diff)
 				quad_bound.append(bounds[2*ind]+quad[2*ind+1]*diff)
-			quad_vals = self._evaluate_func_at_points(func,quad_bound)
+			quad_vals = self._evaluate_func_at_points(func,quad_bound,wrap=wrap)
 			all_vals.append(quad_vals)
 		return all_vals
 
@@ -259,10 +265,14 @@ class Integrator:
 			scale = volume/8
 			return (vals0*vals1) @ self.W @ self.W @ self.W * scale
 
-	def _compute_error_integral(self,vals0,vals1,volume=1):
+	def _compute_error_integral(self,vals0,vals1,volume=1,p=2,prev_val=0):
+		if p == "inf":
+			new_max = max(abs(vals0-vals1).flatten())
+			return max(prev_val,new_max)
 		if self.dim == 2:
 			scale = volume / 4
-			return ((vals0-vals1)**2)@ self.W @ self.W * scale
+			new_val = (abs(vals0-vals1)**p)@ self.W @ self.W * scale
+			return prev_val + new_val
 		if self.dim == 3:
 			scale = volume / 8
 			return ((vals0-vals1)**2)@ self.W @ self.W @ self.W * scale

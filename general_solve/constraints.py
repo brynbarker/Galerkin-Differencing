@@ -4,6 +4,7 @@ from scipy import sparse
 from scipy import linalg as scla
 from drawarrow import ax_arrow
 
+from general_solve import globals
 from general_solve.debug import matvis
 
 class ConstraintOperator:
@@ -123,9 +124,6 @@ class ConstraintOperator:
 
 	def _setup_interface(self):
 
-		for p in self.mesh.patches:
-			p.vis('stripe')
-
 		if self.gpatch is None:
 			return
 
@@ -138,35 +136,40 @@ class ConstraintOperator:
 					to_return.append(global_id)
 			return to_return
 
-		lines, weights = self.mesh.get_interface_quad_locs()
 
-		ghost_evals = self.patches[self.gpatch].evaluate_interface_ghosts(lines)
-		ghost_count = ghost_evals.shape[0]
+		if globals.LAG:
+			ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
+			ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
+		else:
+			lines, weights = self.mesh.get_interface_lines()
+			ghost_evals = self.patches[self.gpatch].evaluate_interface_ghosts(lines)
+			ghost_count = ghost_evals.shape[0]
 
 
-		mass_matrix = np.zeros((ghost_count,ghost_count))
-		for i in range(ghost_count):
-			for j in range(ghost_count):
-				mass_matrix[i,j] += sum(
-					ghost_evals[i]*ghost_evals[j]*weights)
-
-		# print(mass_matrix.shape)
-		matvis(mass_matrix)
+			mass_matrix = np.zeros((ghost_count,ghost_count))
+			for i in range(ghost_count):
+				for j in range(ghost_count):
+					mass_matrix[i,j] += sum(
+						ghost_evals[i]*ghost_evals[j]*weights)
 
 
 		for p_id,p in enumerate(self.patches):
 			p_dof_local_ids = [p.dofs[lookup_id].ID for lookup_id in p.interface_dofs]
 			p_interface_dof_ids_tmp = self._global_dof_id(p_dof_local_ids,p_id)
 			p_interface_dof_ids = swap_periodic(p_interface_dof_ids_tmp)
-			nonghost_evals = p.evaluate_interface_lines(lines)
-			nonghost_count = nonghost_evals.shape[0]
+			if globals.LAG:
+				nonghost_evals = p.evaluate_interface_points(self.interface_points)
+				evals = ghost_vals_inv @ nonghost_evals
+			else:
+				nonghost_evals = p.evaluate_interface_lines(lines)
+				nonghost_count = nonghost_evals.shape[0]
 
-			projection_matrix = np.zeros((ghost_count,nonghost_count))
-			for i in range(ghost_count):
-				for j in range(nonghost_count):
-					projection_matrix[i,j] += sum(
-						ghost_evals[i]*nonghost_evals[j]*weights)
-			evals = np.linalg.solve(mass_matrix,projection_matrix)
+				projection_matrix = np.zeros((ghost_count,nonghost_count))
+				for i in range(ghost_count):
+					for j in range(nonghost_count):
+						projection_matrix[i,j] += sum(
+							ghost_evals[i]*nonghost_evals[j]*weights)
+				evals = np.linalg.solve(mass_matrix,projection_matrix)
 
 			sgn = 1. if p_id==self.nongpatch else -1.
 

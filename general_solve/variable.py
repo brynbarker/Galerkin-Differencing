@@ -7,7 +7,10 @@ from general_solve.mesh import Mesh
 from general_solve.integration import Integrator
 from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator,DivergenceOperator
 from general_solve.constraints import ConstraintOperator
+from general_solve.couple_interface_levels import InterfaceMapping
 import krylov
+
+from general_solve import globals
 
 class subtract_null(sla.LinearOperator):
 	def __init__(self,sys,size):
@@ -61,8 +64,10 @@ class MultiComponentVariable:
 class SingleComponentVariable:
 	def __init__(self,N,dim=2,dofloc='node',
 			  rtype='uniform',rname=None,var=None,
-			  ords=[1,1],qpn=None,ghost_off=False):
+			  ords=[1,1],qpn=None,ghost_off=False,zigzag=False):
 		if qpn is None: qpn = max(ords)+1
+
+		self.zigzag = zigzag
 		
 		ord_incomp = False
 		if min(ords)==0 and dofloc=='node':
@@ -82,9 +87,16 @@ class SingleComponentVariable:
 		self.curr_sol = None
 		self.curr_errs = [None,None]
 
-		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname,ghost_off=ghost_off)
+		self.mesh = Mesh(N,dim,ords,dofloc,rtype,rname,ghost_off=ghost_off,
+				   			zigzag=zigzag)
 		self.mesh.set_quadrature(self.integrator)
 		self.h = self.mesh.h
+
+		if zigzag:
+			self.interface_map = InterfaceMapping(
+									self.mesh,self.integrator,self.ords)
+		else:
+			self.interface_map = None
 
 		self.constraints = ConstraintOperator(self.mesh)
 
@@ -127,13 +139,13 @@ class SingleComponentVariable:
 		def solution(loc):
 			e,dof_shift = self.mesh.loc_to_el(loc)
 			val = 0
-			for local_id, dof in enumerate(e.dof_list):
+			for dof in e.dof_list:
 				val += interpolants[dof.ID+dof_shift]*dof.phi(loc)
 			return val
 		return solution
 
-	def error(self,sol_vec,raw=False):
-		if self.true_var_vals == None:
+	def _get_true_vals_at_quad_points(self):
+		if self.true_var_quad_vals == None:
 			tmp = [{},{}]
 			for p_id,p in enumerate(self.mesh.patches):
 				dof_shift = self.constraints.dof_id_shift*p_id
@@ -141,8 +153,14 @@ class SingleComponentVariable:
 					vol = (e.h)**self.dim
 					true_var_vals_e = self.integrator._evaluate_func_on_element(self.varfunc,e.bounds)
 					tmp[p_id][e.ID] = true_var_vals_e
-			self.true_var_vals = tmp
-		l2_err = 0.
+			self.true_var_quad_vals = tmp
+ 
+	def error(self,sol_vec):
+		if self.true_var_vals == None:
+			self._get_true_vals_at_quad_points()
+
+		errs = np.zeros(3)
+		norms = [2,1,'inf']
 		for p_id,p in enumerate(self.mesh.patches):
 			dof_shift = self.constraints.dof_id_shift*p_id
 			for e in p.elements.values():
@@ -154,20 +172,12 @@ class SingleComponentVariable:
 						for local_id, dof in enumerate(e.dof_list):
 							phi_vals = self.integrator.phi_vals[q_id][local_id]
 							varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
-						l2_err += self.integrator._compute_error_integral(var_vals,varh_vals,vol)
-		if raw: return l2_err
-		return np.sqrt(l2_err)
-
-	def evaluate_on_grid(self,func):
-		tmp = []
-		for p in self.mesh.patches:
-			for lookup_id in p.dofs:
-				dof = p.dofs[lookup_id]
-				try:
-					tmp.append(func(dof.x,dof.y))
-				except:
-					tmp.append(func([dof.x,dof.y]))
-		return np.array(tmp)
+						
+						for j in range(3):
+							errs[j] = self.integrator._compute_error_integral(
+												var_vals,varh_vals,vol,norms[j],errs[j])
+		errs[0] = np.sqrt(errs[0])
+		return errs
 
 	def evaluate_on_domain(self,func):
 		tmp = []
@@ -178,24 +188,6 @@ class SingleComponentVariable:
 			except:
 				tmp.append(func([dof.x,dof.y]))
 		return np.array(tmp)
-
-	def Linf_error(self,sol_vec,raw=False):
-		if self.true_sol_vec is None:
-			tmp = []
-			for dof_id in self.constraints.true_dofs:
-				dof = self.constraints.get_dof(dof_id)
-				if self.dim == 2:
-					tmp.append(self.varfunc(dof.x,dof.y))
-				if self.dim == 3:
-					tmp.append(self.varfunc(dof.x,dof.y,dof.z))
-				self.true_sol_vec = np.array(tmp)
-
-		raw_err = sol_vec-self.true_sol_vec
-
-		if raw:
-			return raw_err
-
-		return np.linalg.norm(raw_err)
 
 	def solve_simple_system(self,f,op,disp=True,helm=False,proj=False):
 		op._build_force(f)
@@ -228,7 +220,7 @@ class SingleComponentVariable:
 
 
 		try:
-			assert False
+			# assert False
 			x_star,conv = sla.gmres(lhs,rhs,rtol=1e-14)
 			assert conv == 0
 		except:
@@ -241,55 +233,53 @@ class SingleComponentVariable:
 			self.x = x_star
 		else:
 			alpha = (self.zTc @ x_star) / self.mean_value
-				
 			self.x = x_star - alpha 
 
 		coef_vec = C.dot(self.x)
 		sol_vec = self.evaluate_on_domain(self.sol(coef_vec))
 
-
 		op.set_solution_coef_vector(coef_vec)
-		op.set_solution(sol_vec)
-		err = self.error(coef_vec)
-		Linf_err = self.Linf_error(sol_vec)
-		op.set_error(err)
-		op.set_error(Linf_err,Linf=True)
+		op.set_solution_at_dofs(sol_vec)
+		errs = self.error(coef_vec)
+		op.set_error(errs)
 
-		self.curr_sol = sol_vec
+		self.curr_sol_at_dofs = sol_vec
 		self.curr_coefs = coef_vec
-		self.curr_errs = [err,Linf_err]
+		self.curr_errs = errs
 
 		if disp:
-			print('L2 error     = {}'.format(err))
-			print('Linf error   = {}'.format(Linf_err))
+			print('L2 error     = {}'.format(errs[0]))
+			print('L1 error     = {}'.format(errs[1]))
+			print('Linf error   = {}'.format(errs[2]))
 
 	def solve_poisson(self,f,mu=1,disp=True):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator,mu=mu)
+				self.mesh,self.integrator,mu=mu,zigzag=self.interface_map)
 		return self.solve_simple_system(f,self.operators['lap'],disp)
 
 	def solve_projection(self,disp=True):
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
-				self.mesh,self.integrator)
+				self.mesh,self.integrator,zigzag=self.interface_map)
 		return self.solve_simple_system(self.varfunc,self.operators['mass'],disp,proj=True)
 
 	def solve_helmholtz(self,f,k=1,disp=True):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator)
+				self.mesh,self.integrator,zigzag=self.interface_map)
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
-				self.mesh,self.integrator)
+				self.mesh,self.integrator,zigzag=self.interface_map)
 		if self.operators['helm'] is None:
 			self.operators['helm'] = DifferentialOperator(
-				self.mesh,self.integrator)
+				self.mesh,self.integrator,zigzag=self.interface_map)
 		self.k = k
-		self.solve_simple_system(f,self.operators['mass'],disp,True)
+		self.solve_simple_system(f,self.operators['helm'],disp,True)
 
 	def solve_dx(self,u_var,ufunc,ffunc,deriv_op=None):
-		tmp = DifferentialOperator(self.mesh,self.integrator)
+		tmp = DifferentialOperator(self.mesh,self.integrator,
+							 	   zigzag=self.interface_map)
 		tmp._build_force(ffunc)
 
 		U = u_var.evaluate_on_grid(ufunc)
@@ -299,7 +289,8 @@ class SingleComponentVariable:
 		return lhs, tmp.F
 
 	def solve_dy(self,v_var,vfunc,ffunc,deriv_op=None):
-		tmp = DifferentialOperator(self.mesh,self.integrator)
+		tmp = DifferentialOperator(self.mesh,self.integrator,
+							 	   zigzag=self.interface_map)
 		tmp._build_force(ffunc)
 
 		V = v_var.evaluate_on_grid(vfunc)
@@ -319,15 +310,16 @@ class SingleComponentVariable:
 
 	def vis_dof_sol(self,sol_vec,err=False,log=True,split=True):
 		if err:
-			sol_vec = abs(self.true_sol_vec-sol_vec)
+			sol_vec = abs(self.full_true_sol_vec-sol_vec)
 		else:
 			log = False
-		self.mesh.vis_dof_sol(sol_vec,true_list=self.constraints.true_dofs,log=log,split=split)
+		self.mesh.vis_dof_sol(sol_vec,log=log,split=split)
+		# self.mesh.vis_dof_sol(sol_vec,true_list=self.constraints.true_dofs,log=log,split=split)
 
 	def setup_laplace(self,mu=1):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator,mu=mu)
+				self.mesh,self.integrator,mu=mu,zigzag=self.interface_map)
 		self.operators['lap']._build_system()
 		return self.operators['lap']
 
@@ -387,6 +379,6 @@ class SingleComponentVariable:
 			self.operators['div'] = DivergenceOperator(
 						self.mesh,self.integrator,
 					    l_dphivals,el_map,
-						local_test_size,test_sizes)
+						local_test_size,test_sizes,zigzag=self.interface_map)
 		self.operators['div']._build_system()
 		return self.operators['div']

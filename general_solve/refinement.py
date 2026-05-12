@@ -1,4 +1,5 @@
 import numpy as	np
+from general_solve import globals
 
 refinement_type	= {'uniform':0,
 				   'finecenter':1,
@@ -26,8 +27,6 @@ class RefinementPattern:
 		self.xside = dofloc=='xside'
 		self.yside = dofloc=='yside'
 		self.ords =	ords
-		self.inter_d = {0:[],1:[]}
-		self.dof_near_inter = lambda loc: False
 		self.zigzag = zigzag
 		 
 		self.shifts_R =	[int((ord-1)/2)	for	ord	in self.ords]
@@ -61,7 +60,7 @@ class RefinementPattern:
 		bumps = [1/4*(ord==0) for ord in self.ords]
 		
 		for	shift in shifts:
-			corner = [og+H*(shft-bump) for (og,shft,bump) in zip(start,shift,bumps)]
+			corner = [orig_+H*(shft-bump) for (orig_,shft,bump) in zip(start,shift,bumps)]
 			quads.append(check(corner))
 
 		return quads
@@ -159,21 +158,28 @@ class RefinementPattern:
 		extraL, extraR = [],[]
 		for	i in range(self.dim):
 			same = (i==0 and self.yside) or (i==1 and self.xside)
-			i_edges[i] = [val for val in edges[i]]
+			zsame = (i==1 and self.yside) or (i==0 and self.xside)
+			if zsame and self.zigzag:
+				shfts = [-H,H,-H,H]
+				i_edges[i] = [val+shft for (val,shft) in zip(edges[i],shfts)]
+			else:
+				i_edges[i] = [val for val in edges[i]]
 			if self.cell or same:
 				# i_edges[i] = [val for val in edges[i]]
 				extraL.append(0)
 				extraR.append(0)
 			else:
-				# i_edges[i] = [.25,.25,.75,.75]
+				if globals.LAG:
+					i_edges[i] = [.25,.25,.75,.75]
 				extraL.append(H*self.shifts_L[i])
 				extraR.append(H*self.shifts_R[i])
 			
-		far_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
-		far_out = lambda x,d: i_edges[d][0] >= x or x >= i_edges[d][3]
+		tmp_edges = i_edges if globals.LAG else edges
+		far_in = lambda x,d: tmp_edges[d][1] <= x <= tmp_edges[d][2]
+		far_out = lambda x,d: tmp_edges[d][0] >= x or x >= tmp_edges[d][3]
 
-		block =	lambda x,d: i_edges[d][0]-extraL[d] <=	x <= i_edges[d][-1]+extraR[d]
-		slice =	lambda x,d: (i_edges[d][0]<=x<=i_edges[d][1]) or (i_edges[d][2]<=x<=i_edges[d][-1])
+		block =	lambda x,d: tmp_edges[d][0]-extraL[d] <=	x <= tmp_edges[d][-1]+extraR[d]
+		slice =	lambda x,d: (tmp_edges[d][0]<=x<=tmp_edges[d][1]) or (tmp_edges[d][2]<=x<=tmp_edges[d][-1])
 
 		funcs = [center,loose_center, domain, far_in, far_out,
 		   		 periodic_check_full, dirichlet_check_full, block, slice]
@@ -212,8 +218,10 @@ class RefinementPattern:
 						if interface([x,y]):
 							self.i_data[L][0].append([i,j])
 							if ghost([x,y]):
-								nearest_point = True
-								# nearest_point =	self._closest_point([x,y],H)
+								if globals.LAG:
+									nearest_point =	self._closest_point([x,y],H)
+								else:
+									nearest_point = True
 							else:
 								nearest_point =	None
 							self.i_data[L][1].append(nearest_point)
@@ -248,7 +256,7 @@ class RefinementPattern:
 	
 
 class UniformRefinement(RefinementPattern):
-	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
+	def	__init__(self,name,dofloc,N,dim,ords,zigzag=False):
 		super().__init__(name,dofloc,N,dim,ords)
 		self.rshade = ['none','all']
 
@@ -283,8 +291,8 @@ class UniformRefinement(RefinementPattern):
 		return doms, [tmp]*8
 
 class StripeRefinement(RefinementPattern):
-	def	__init__(self,name,dofloc,N,dim,ords):#=[3,3]):
-		super().__init__(name,dofloc,N,dim,ords)
+	def	__init__(self,name,dofloc,N,dim,ords,zigzag=False):
+		super().__init__(name,dofloc,N,dim,ords,zigzag)
 		self.rtype = stripe_refinement_type[name]
 		self.rdim = int(self.rtype/2) # vertical or horizontal stripe
 
@@ -294,7 +302,6 @@ class StripeRefinement(RefinementPattern):
 						   3:['hedge','hstripe']}
 		self.rshade = rindex_to_shade[self.rtype]
 
-		self._set_interface_dict()
 		
 	def get_interface_lines(self):
 		dofs = np.linspace(0,1,4*self.N+1)
@@ -308,12 +315,6 @@ class StripeRefinement(RefinementPattern):
 			comps = [0,0]
 		return [np.asarray(line0),np.asarray(line1)],comps
 
-	def _set_interface_dict(self):
-		sgn = 1 if self.rtype%2==0 else -1
-		self.inter_d[1-self.rdim].append(.25,[0,1],sgn)
-
-		sgn = -1 if self.rtype%2==0 else 1
-		self.inter_d[1-self.rdim].append(.75,[0,1],sgn)
 
 	def get_patch_id(self, loc):
 		in_stripe = .25 <= loc[self.rdim] < .75
@@ -377,6 +378,12 @@ class StripeRefinement(RefinementPattern):
 		low_support = lambda loc: False
 		ghost = lambda loc: False
 
+		if self.zigzag:
+			if (rdim == 0 and self.xside) or (rdim==1 and self.yside):
+				interface = lambda loc: loc[rdim] in [.25,.75]#myslice(loc[rdim],rdim)
+				
+
+
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]
 		return doms, checks
@@ -394,27 +401,41 @@ class StripeRefinement(RefinementPattern):
 		# let's look at the values for edges[rdim][1,2]
 		#far_in = lambda x,d: edges[d][1] <= x <= edges[d][2]
 		if self.rtype % 2: # fine edges
-			check, echeck, quad = self.edge_checks(H,edges,domain,loose_center)
+			check, orig_echeck, quad = self.edge_checks(H,edges,domain,loose_center)
 			myfar_in = lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
-			ghost = lambda loc: myfar_in(loc[rdim],rdim)
+			orig_ghost = lambda loc: myfar_in(loc[rdim],rdim)
+			myslice = lambda x,d: (i_edges[d][0]<=x<=edges[d][1]) or (edges[d][2]<=x<=i_edges[d][-1])
 
 			if self.zigzag:
 				# sloppy fix
-				echeck = lambda loc: echeck(loc) and (loc[rdim] not in [.25-H,.75])
+				echeck = lambda loc: orig_echeck(loc) and (loc[rdim] not in [.25-H,.75])
+			else:
+				echeck = orig_echeck
 		else: # fine stripe
-			check,echeck,quad = self.stripe_checks(H,edges,domain,center)
-			ghost = lambda loc: far_out(loc[rdim],rdim)
+			check,orig_echeck,quad = self.stripe_checks(H,edges,domain,center)
+			orig_ghost = lambda loc: far_out(loc[rdim],rdim)
+			myslice = lambda x,d: (edges[d][0]<=x<=i_edges[d][1]) or (i_edges[d][2]<=x<=edges[d][-1])
 
 			if self.zigzag:
 				# sloppy fix
-				echeck = lambda loc: echeck(loc) and (loc[rdim] not in [.25,.75-H])
+				echeck = lambda loc: orig_echeck(loc) and (loc[rdim] not in [.25,.75-H])
+			else:
+				echeck = orig_echeck
 
 		interface = lambda loc: slice(loc[rdim],rdim)
 
 		low_support = lambda loc: False
 
 		if self.zigzag:
-			check = lambda loc: check(loc) and (loc[rdim] not in [.25,.75])
+			if (rdim==0 and self.xside) or (rdim==1 and self.yside):
+				ghost = lambda loc: loc[rdim] in [.25,.75]
+				interface = lambda loc: myslice(loc[rdim],rdim)
+			else:
+				ghost = orig_ghost
+		else:
+			ghost = orig_ghost
+
+		
 
 		if self.ords[rdim] == 0:
 			ghost = lambda loc: False#interface(loc)
@@ -425,13 +446,11 @@ class StripeRefinement(RefinementPattern):
 		return doms, checks
 
 class SquareRefinement(RefinementPattern):
-	def	__init__(self,name,dofloc,N,dim,ords):
-		super().__init__(name,dofloc,N,dim,ords)
+	def	__init__(self,name,dofloc,N,dim,ords,zigzag=False):
+		super().__init__(name,dofloc,N,dim,ords,zigzag)
 		self.rtype = square_refinement_type[name]
 		rindex_to_shade ={0:['in','out'],1:['out','in']}
 		self.rshade = rindex_to_shade[self.rtype]
-
-		self._set_interface_dict()
 
 	def get_interface_lines(self):
 		dofs = np.linspace(.25,.75,2*self.N+1)
@@ -442,14 +461,6 @@ class SquareRefinement(RefinementPattern):
 		line3 = np.asarray([(x,.75) for x in dofs])
 		return [line0,line1,line2,line3],[1,1,0,0]
 		
-	def _set_interface_dict(self):
-		sgn = 1 if self.rtype==0 else -1
-		for comp in range(2):
-			self.inder_d[comp].append((.25,[.25,.75],sgn))
-
-		sgn = -1 if self.rtype==0 else 1
-		for comp in range(2):
-			self.inder_d[comp].append((.75,[.25,.75],sgn))
 	
 	def get_null_condensers(self):
 		if self.rtype:
@@ -611,8 +622,14 @@ class SquareRefinement(RefinementPattern):
 			check, echeck, quad, low_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
 
-		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
-		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
+		if self.zigzag and self.xside:
+			check2 = lambda	loc: block(loc[1],1) and loc[0] in [.25,.75]
+		else:
+			check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
+		if self.zigzag and self.yside:
+			check1 = lambda	loc: block(loc[0],0) and loc[1] in [.25,.75]
+		else:
+			check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
 		interface	= lambda loc: check1(loc) or check2(loc)
 
 		ghost = lambda loc: False
@@ -630,37 +647,51 @@ class SquareRefinement(RefinementPattern):
 		periodic, dirichlet, block, slice = funcs[-4:]
 
 		if self.rtype == 0: # fine center
-			check, echeck, quad, low_support = self.center_checks(
+			check, orig_echeck, quad, low_support = self.center_checks(
 						H,edges,center,far_out)
 
 			in_i_edge = lambda x,d: x==i_edges[d][0] or x==i_edges[d][-1]
 			out_i_edge = lambda x,d: i_edges[d][0] <= x <= i_edges[d][-1]
-			ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
+			orig_ghost	= lambda loc: self._all_d(out_i_edge,loc) and self._at_least_one(in_i_edge,loc)
+			myslice = lambda x,d: (edges[d][0]<=x<=i_edges[d][1]) or (i_edges[d][2]<=x<=edges[d][-1])
 
 			if self.zigzag:
 				# sloppy fix
 				eline_check = lambda x: x not in [.25,.75-H]
-				echeck = lambda loc: echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+				echeck = lambda loc: orig_echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+			else:
+				echeck = orig_echeck
 
 		else: # fine edges
-			check, echeck, quad, low_support = self.outside_checks(
+			check, orig_echeck, quad, low_support = self.outside_checks(
 						H,edges,domain,loose_center,far_in)
 			ghost_x =	lambda x,d: i_edges[d][1] <= x <= i_edges[d][2]
-			ghost	= lambda loc: self._all_d(ghost_x,loc)
+			orig_ghost	= lambda loc: self._all_d(ghost_x,loc)
+			myslice = lambda x,d: (i_edges[d][0]<=x<=edges[d][1]) or (edges[d][2]<=x<=i_edges[d][-1])
 
 			if self.zigzag:
 				# sloppy fix
 				eline_check = lambda x: x not in [.25-H,.75]
-				echeck = lambda loc: echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+				echeck = lambda loc: orig_echeck(loc) and eline_check(loc[0]) and eline_check(loc[1])
+			else:
+				echeck = orig_echeck
 
-		check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
-		check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
+		if self.zigzag and self.yside:
+			check1 = lambda	loc: block(loc[0],0) and myslice(loc[1],1)
+		else:
+			check1 = lambda	loc: block(loc[0],0) and slice(loc[1],1)
+		if self.zigzag and self.xside:
+			check2 = lambda	loc: block(loc[1],1) and myslice(loc[0],0)
+		else:
+			check2 = lambda	loc: block(loc[1],1) and slice(loc[0],0)
 		interface	= lambda loc: check1(loc) or check2(loc)
 
 		# sloppy fix
 		if self.zigzag:
-			line_check = lambda x: x not in [.25,.75]
-			check = lambda loc: check(loc) and line_check(loc[0]) and line_check(loc[1])
+			zerdim = 0 if self.xside else 1
+			ghost = lambda loc: orig_ghost(loc) or loc[zerdim] in [.25,.75]
+		else:
+			ghost = orig_ghost
 
 		checks = [check, echeck, periodic, dirichlet,
 				  low_support, quad, interface, ghost]
