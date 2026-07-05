@@ -8,6 +8,7 @@ from general_solve.integration import Integrator
 from general_solve.differential_operators import DifferentialOperator,LaplaceOperator,ProjectionOperator,DivergenceOperator
 from general_solve.constraints import ConstraintOperator
 from general_solve.couple_interface_levels import InterfaceMapping
+from general_solve.shape_functions import phi_2d_ref
 import krylov
 
 from general_solve import globals
@@ -95,39 +96,66 @@ class SingleComponentVariable:
 		if zigzag:
 			self.interface_map = InterfaceMapping(
 									self.mesh,self.integrator,self.ords)
+			traps = self.interface_map.trapezoid_elements
+			tris = self.interface_map.triangle_elements
+			lookup_func = self.interface_map.get_lookup_vals
+			self.mesh.add_zigzag_elements(traps,tris,lookup_func)
+
+			# zz_fills = self.interface_map.zigzag_ghost_fills
+
+			for p in self.mesh.patches:
+				for dof_id in p.dofs:
+					if p.dofs[dof_id].interface:
+						p.dofs[dof_id].update_phi()#set_phi()
 		else:
 			self.interface_map = None
+			zz_fills = None
 
-		self.constraints = ConstraintOperator(self.mesh)
+		self.constraints = ConstraintOperator(self.mesh)#,zz_fills)
 
 		self.k = None
 		ops = ['mass','lap','helm','div','grad']
 		self.operators = {op:None for op in ops}
 
 		self.true_sol_vec = None
-		self.true_var_vals = None
+		self.true_var_quad_vals = None
 		self.interior_list = []
 		self.view_list = []
-		
-		self._setup_mean_value()
+
+		# self._setup_mean_value()
 
 	def _setup_mean_value(self):
+		base_vol = 1/2**self.dim
 		myZs = []
+		d_phi_ops = [self.integrator.phi_vals,self.interface_map.phi_vals]
 		for patch in self.mesh.patches:
 			num_dofs = len(patch.dofs)
 			myZ = np.zeros((num_dofs,1))
 
 			for e in patch.elements.values():
-				vol = (e.h/2)**self.dim
+				d_phi = d_phi_ops[0] if e.regular else d_phi_ops[1][e.tri][e.map_type]
+				vol = base_vol if not e.regular else base_vol*(e.h)**self.dim 
 				for quad_id,quad in enumerate(e.quads):
 					if quad:
+						jdet = 1 if e.regular else e.get_usub_det(quad_id)
 						for test_id,dof in enumerate(e.dof_list):
-							phi_val = self.integrator.phi_vals[quad_id][test_id]
-							val = self.integrator._compute_product_integral(phi_val,volume=vol)
+							phi_val = d_phi[quad_id][test_id]
+							val = self.integrator._compute_product_integral(phi_val,volume=vol,jdet=jdet)
 							myZ[dof.ID,0] += val
 			myZs.append(myZ)
 
 		self.Z = np.vstack(myZs)
+		# vol = 1/2**self.dim
+		# for e in self.mesh.zigzag_elements:
+		# 	for quad_id,quad in enumerate(e.quads):
+		# 		if quad:
+		# 			j_det = e.get_usub_det(quad_id)
+		# 			for test_id,dof in enumerate(e.dof_list):
+		# 				phi_val = self.integrator.phi_vals[quad_id][test_id]
+		# 				# j_det = e.J_dets[quad_id]
+		# 				val = self.integrator._compute_product_integral(phi_val,volume=vol,jdet=j_det)
+		# 				self.Z[e.dof_ids[test_id],0] += val
+
 		self.zTc = self.constraints.spC.T.dot(self.Z)[:,0]
 		self.mean_value = sum(self.Z)
 
@@ -139,59 +167,98 @@ class SingleComponentVariable:
 		def solution(loc):
 			e,dof_shift = self.mesh.loc_to_el(loc)
 			val = 0
-			for dof in e.dof_list:
-				val += interpolants[dof.ID+dof_shift]*dof.phi(loc)
+			for dof in set(e.dof_list):
+				dof_ID = dof.ID + (dof.h != self.h)*dof_shift
+				val += interpolants[dof_ID]*dof.phi(loc,el=e,glob=True)
+			# if e.regular:
+			# 	for dof in e.dof_list:
+			# 		val += interpolants[dof.ID+dof_shift]*dof.phi(loc,e)
+			# else:
+			# 	xi,eta = e.inv_transform(loc[0],loc[1])
+			# 	for local_id,dof in enumerate(e.dof_list):
+			# 		global_id = e.dof_ids[local_id]
+			# 		val += interpolants[global_id]*dof.phi([xi,eta],e,local_id)#phi_2d_ref(self.ords,xi,eta,1,id_map[local_id])
 			return val
 		return solution
 
 	def _get_true_vals_at_quad_points(self):
 		if self.true_var_quad_vals == None:
 			tmp = [{},{}]
+			local_bounds = [0,1,0,1]
 			for p_id,p in enumerate(self.mesh.patches):
 				dof_shift = self.constraints.dof_id_shift*p_id
 				for e in p.elements.values():
-					vol = (e.h)**self.dim
-					true_var_vals_e = self.integrator._evaluate_func_on_element(self.varfunc,e.bounds)
-					tmp[p_id][e.ID] = true_var_vals_e
+					bnds = e.bounds if e.regular else local_bounds
+					wrap = None if e.regular else e.transform
+					true_var_vals_e = self.integrator._evaluate_func_on_element(self.varfunc,bnds,wrap=wrap)#e.bounds)
+					tmp[p_id][e.global_ID] = true_var_vals_e
+			# for e in self.mesh.zigzag_elements:
+			# 	true_var_vals_e = self.integrator._evaluate_func_on_element(self.varfunc,
+			# 								local_bounds,wrap=e.transform)
+			# 	tmp[2][e.global_ID] = true_var_vals_e
+
 			self.true_var_quad_vals = tmp
  
 	def error(self,sol_vec):
-		if self.true_var_vals == None:
+		if self.true_var_quad_vals == None:
 			self._get_true_vals_at_quad_points()
 
+		d_phi_ops = [self.integrator.phi_vals,self.interface_map.phi_vals]
+		base_vol = 1/2**self.dim
 		errs = np.zeros(3)
 		norms = [2,1,'inf']
+		c_dof_shift = self.constraints.dof_id_shift
 		for p_id,p in enumerate(self.mesh.patches):
-			dof_shift = self.constraints.dof_id_shift*p_id
+			dof_shift = c_dof_shift*p_id
 			for e in p.elements.values():
-				vol = (e.h/2)**self.dim
+				d_phi = d_phi_ops[0] if e.regular else d_phi_ops[1][e.tri][e.map_type]
+				vol = base_vol if not e.regular else base_vol*(e.h)**self.dim 
 				for q_id,q_bool in enumerate(e.quads):
-					var_vals = self.true_var_vals[p_id][e.ID][q_id]
+					var_vals = self.true_var_quad_vals[p_id][e.global_ID][q_id]
 					if q_bool:
+						jdet = 1 if e.regular else e.get_usub_det(q_id)
 						varh_vals = np.zeros_like(var_vals)
 						for local_id, dof in enumerate(e.dof_list):
-							phi_vals = self.integrator.phi_vals[q_id][local_id]
+							phi_vals = d_phi[q_id][local_id]
 							varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
 						
 						for j in range(3):
 							errs[j] = self.integrator._compute_error_integral(
-												var_vals,varh_vals,vol,norms[j],errs[j])
+												var_vals,varh_vals,vol,norms[j],errs[j],jdet=jdet)
+
+		# for e in self.mesh.zigzag_elements:
+		# 	vol = e.h/2**self.dim
+		# 	for q_id,quad in enumerate(e.quads):
+		# 		if quad:
+		# 			jdet = e.get_usub_det(q_id)
+		# 			var_vals = self.true_var_quad_vals[2][e.global_ID][q_id]
+		# 			varh_vals = np.zeros_like(var_vals)
+		# 			for local_id, dof in enumerate(e.dof_list):
+		# 				dof_shift = c_dof_shift*(dof.h != self.h)
+		# 				phi_vals = self.integrator.phi_vals[q_id][local_id]
+		# 				varh_vals += sol_vec[dof.ID+dof_shift]*phi_vals
+		# 			for j in range(3):
+		# 				errs[j] = self.integrator._compute_error_integral(
+		# 									var_vals,varh_vals,vol,norms[j],
+		# 									errs[j],jdet=jdet)
+
+
 		errs[0] = np.sqrt(errs[0])
 		return errs
 
 	def evaluate_on_domain(self,func):
 		tmp = []
-		for dof_id in self.constraints.true_dofs:
-			dof = self.constraints.get_dof(dof_id)
+		# for dof_id in self.constraints.true_dofs:
+		# 	dof = self.constraints.get_dof(dof_id)
+		for e in self.mesh.all_elements:
+			x,y = e.mid
 			try:
-				tmp.append(func(dof.x,dof.y))
+				tmp.append(func(x,y))
 			except:
-				tmp.append(func([dof.x,dof.y]))
+				tmp.append(func([x,y]))
 		return np.array(tmp)
 
 	def solve_simple_system(self,f,op,disp=True,helm=False,proj=False):
-		op._build_force(f)
-
 		if helm:
 			self.operators['mass']._build_system()
 			self.operators['lap']._build_system()
@@ -201,6 +268,7 @@ class SingleComponentVariable:
 		else:
 			op._build_system()
 			spA = op.spA
+		op._build_force(f)
 
 		C = self.constraints.spC
 		lhs = C.T @ spA @ C
@@ -214,9 +282,15 @@ class SingleComponentVariable:
 				rhs -= (v@ rhs)*v
 
 
+
 		self.sp_lhs = lhs
 		self.lhs = lhs.todense()
 		self.rhs = rhs
+
+		ns = scla.null_space(self.lhs).T
+		for vec in ns:
+			rhs -= (vec@rhs)*vec
+			print(vec@rhs)
 
 
 		try:
@@ -224,8 +298,8 @@ class SingleComponentVariable:
 			x_star,conv = sla.gmres(lhs,rhs,rtol=1e-14)
 			assert conv == 0
 		except:
-			x_star = np.linalg.solve(lhs.todense(),rhs)
 			print('krylov issue')
+			x_star = np.linalg.solve(lhs.todense(),rhs)
 			self.totest = [lhs,rhs]
 
 		self.x_star = x_star
@@ -233,17 +307,23 @@ class SingleComponentVariable:
 			self.x = x_star
 		else:
 			alpha = (self.zTc @ x_star) / self.mean_value
+			print(alpha)
 			self.x = x_star - alpha 
+		for vec in ns:
+			# rhs -= (vec@rhs)*vec
+			print(vec@self.x,vec@x_star)
 
 		coef_vec = C.dot(self.x)
-		sol_vec = self.evaluate_on_domain(self.sol(coef_vec))
+		approx_on_domain = self.evaluate_on_domain(self.sol(coef_vec))
+		self.sol_on_domain = self.evaluate_on_domain(self.varfunc)
 
 		op.set_solution_coef_vector(coef_vec)
-		op.set_solution_at_dofs(sol_vec)
+		# op.set_solution_at_dofs(sol_vec)
 		errs = self.error(coef_vec)
 		op.set_error(errs)
 
-		self.curr_sol_at_dofs = sol_vec
+		# self.curr_sol_at_dofs = sol_vec
+		self.curr_approx_sol = approx_on_domain
 		self.curr_coefs = coef_vec
 		self.curr_errs = errs
 
@@ -255,31 +335,30 @@ class SingleComponentVariable:
 	def solve_poisson(self,f,mu=1,disp=True):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator,mu=mu,zigzag=self.interface_map)
+				self.mesh,self.integrator,mu=mu)
 		return self.solve_simple_system(f,self.operators['lap'],disp)
 
 	def solve_projection(self,disp=True):
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
-				self.mesh,self.integrator,zigzag=self.interface_map)
+				self.mesh,self.integrator)
 		return self.solve_simple_system(self.varfunc,self.operators['mass'],disp,proj=True)
 
 	def solve_helmholtz(self,f,k=1,disp=True):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator,zigzag=self.interface_map)
+				self.mesh,self.integrator)
 		if self.operators['mass'] is None:
 			self.operators['mass'] = ProjectionOperator(
-				self.mesh,self.integrator,zigzag=self.interface_map)
+				self.mesh,self.integrator)
 		if self.operators['helm'] is None:
 			self.operators['helm'] = DifferentialOperator(
-				self.mesh,self.integrator,zigzag=self.interface_map)
+				self.mesh,self.integrator)
 		self.k = k
 		self.solve_simple_system(f,self.operators['helm'],disp,True)
 
 	def solve_dx(self,u_var,ufunc,ffunc,deriv_op=None):
-		tmp = DifferentialOperator(self.mesh,self.integrator,
-							 	   zigzag=self.interface_map)
+		tmp = DifferentialOperator(self.mesh,self.integrator)
 		tmp._build_force(ffunc)
 
 		U = u_var.evaluate_on_grid(ufunc)
@@ -289,8 +368,7 @@ class SingleComponentVariable:
 		return lhs, tmp.F
 
 	def solve_dy(self,v_var,vfunc,ffunc,deriv_op=None):
-		tmp = DifferentialOperator(self.mesh,self.integrator,
-							 	   zigzag=self.interface_map)
+		tmp = DifferentialOperator(self.mesh,self.integrator)
 		tmp._build_force(ffunc)
 
 		V = v_var.evaluate_on_grid(vfunc)
@@ -308,18 +386,26 @@ class SingleComponentVariable:
 		err_v = np.linalg.norm(v_lhs-v_F)
 		return err_u,err_v
 
-	def vis_dof_sol(self,sol_vec,err=False,log=True,split=True):
-		if err:
-			sol_vec = abs(self.full_true_sol_vec-sol_vec)
+	def vis_dof_sol(self,approx_vec,locs=None,err=False,log=True,lines=False,ave_only=False):
+		if err and locs is None:
+			sol_vec = abs(self.sol_on_domain-approx_vec)
+		elif locs is not None:
+			approx_func = self.sol(approx_vec)
+			sol_vec = np.array([approx_func(loc) for loc in locs])
+			if err:
+				true_vec = np.array([self.varfunc(x,y) for (x,y) in locs])
+				sol_vec = abs(true_vec-sol_vec)
 		else:
+			sol_vec = approx_vec
 			log = False
-		self.mesh.vis_dof_sol(sol_vec,log=log,split=split)
-		# self.mesh.vis_dof_sol(sol_vec,true_list=self.constraints.true_dofs,log=log,split=split)
+		if ave_only:
+			return np.min(sol_vec),np.mean(sol_vec),np.max(sol_vec)
+		self.mesh.vis_dof_sol(sol_vec,locs=locs,log=log,lines=lines)
 
 	def setup_laplace(self,mu=1):
 		if self.operators['lap'] is None:
 			self.operators['lap'] = LaplaceOperator(
-				self.mesh,self.integrator,mu=mu,zigzag=self.interface_map)
+				self.mesh,self.integrator,mu=mu)
 		self.operators['lap']._build_system()
 		return self.operators['lap']
 
@@ -379,6 +465,6 @@ class SingleComponentVariable:
 			self.operators['div'] = DivergenceOperator(
 						self.mesh,self.integrator,
 					    l_dphivals,el_map,
-						local_test_size,test_sizes,zigzag=self.interface_map)
+						local_test_size,test_sizes)
 		self.operators['div']._build_system()
 		return self.operators['div']

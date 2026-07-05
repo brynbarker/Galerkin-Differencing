@@ -1,28 +1,80 @@
 import numpy as	np
 import matplotlib.pyplot as	plt
 
-def check_continuity(var):
+def check_continuity(var,full=False,reps=1):
     eps = 1e-3
-    doms = [np.linspace(.25-eps,.25+eps),np.linspace(.75-eps,.75+eps)]
+    if full:
+        def get_max_diff(vals):
+            Lvals = vals[::2]
+            Rvals = vals[1::2]
+            diffs = [abs(rval-lval) for (rval,lval) in zip(Lvals,Rvals)]
+            return max(diffs)
+        pair_ids = []
+        nodes = np.linspace(0,1,4*var.N+1)
+        dom = []
+        for n in nodes:
+            L = max(n-1e-15,0)
+            R = min(n+1e-15,1)
+            dom.append(L)
+            dom.append(R)
+            
+        doms=  [dom,dom]
+        # doms = [np.linspace(0,1,4*var.N+1),np.linspace(0,1,4*var.N+1)]
+    else:
+        if var.zigzag:
+            doms = [np.linspace(.25-eps,.25+var.h/2+eps),np.linspace(.75-var.h/2-eps,.75+eps)]
+        else:
+            doms = [np.linspace(.25-eps,.25+eps),np.linspace(.75-eps,.75+eps)]
     rand_x = np.random.random(len(var.constraints.true_dofs))
     rand_u = var.constraints.spC.dot(rand_x)
     rand_sol = var.sol(rand_u)
     plt.figure(figsize=(50,10))
-    for j,other in enumerate(np.linspace(.15,.85,8)):
-        for i,dom in enumerate(doms):
+    for i,dom in enumerate(doms):
+        j_titles = {k:[] for k in range(8)}
+        for jj,other in enumerate(np.linspace(0,1,reps*8+2)[1:-1]):
+            j = int(jj/reps)
             plt.subplot(2,8,8*i+j+1)
             mymin,mymax = 1e10,-1e10
-            rand_vals_0 = [rand_sol([x,other]) for x in dom]
-            plt.plot(dom,rand_vals_0,label='y = '+str(round(other,3)),lw=3)
-            rand_vals_1 = [rand_sol([other,x]) for x in dom]
-            plt.plot(dom,rand_vals_1,label='x = '+str(round(other,3)),lw=3)
+            if not full or i == 0:
+                rand_vals_0 = [rand_sol([x,other]) for x in dom]
+                if full:
+                    max_0 = get_max_diff(rand_vals_0)
+                else:
+                    max_0 = max([abs(rand_vals_0[i+1]-rand_vals_0[i]) for i in range(len(dom)-1)])
+                plt.plot(dom,rand_vals_0,label='y = '+str(round(other,3)),lw=3)
+            else:
+                rand_vals_0,max_0 = [],None
+            if not full or i == 1:
+                rand_vals_1 = [rand_sol([other,x]) for x in dom]
+                if full:
+                    max_1 = get_max_diff(rand_vals_1)
+                else:
+                    max_1 = max([abs(rand_vals_1[i+1]-rand_vals_1[i]) for i in range(len(dom)-1)])
+                plt.plot(dom,rand_vals_1,label='x = '+str(round(other,3)),lw=3)
+            else:
+                rand_vals_1,max_1 = [],None
             mymin = min(mymin,min(rand_vals_0+rand_vals_1))
             mymax = max(mymax,max(rand_vals_0+rand_vals_1))
-            if i:plt.plot([.75,.75],[mymin,mymax],'k:')
-            else:plt.plot([.25,.25],[mymin,mymax],'k:')
+            if full:
+                plt.plot([.75,.75],[mymin,mymax],'k:')
+                plt.plot([.25,.25],[mymin,mymax],'k:')
+                if var.zigzag:
+                    plt.plot([.75-var.h/2,.75-var.h/2],[mymin,mymax],'k:')
+                    plt.plot([.25+var.h/2,.25+var.h/2],[mymin,mymax],'k:')
+            else:
+                if i:plt.plot([.75,.75],[mymin,mymax],'k:')
+                else:plt.plot([.25,.25],[mymin,mymax],'k:')
+                if var.zigzag:
+                    if i:plt.plot([.75-var.h/2,.75-var.h/2],[mymin,mymax],'k:')
+                    else:plt.plot([.25+var.h/2,.25+var.h/2],[mymin,mymax],'k:')
             plt.xticks([min(doms[i]),.25+.5*i,max(doms[i])])
-            plt.title(str(round(other,3)),fontsize=20)
-            # plt.legend()
+            if full:
+                vl = max_0 if i==0 else max_1
+                j_titles[j].append(round(vl,4))
+                plt.title(max(j_titles[j]),fontsize=20)
+            else:
+                plt.title([round(max_0,3),round(max_1,3)],fontsize=20)
+                plt.legend()
     plt.show()
 
 def	matvis(m):

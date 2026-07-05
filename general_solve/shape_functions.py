@@ -1,10 +1,173 @@
 
 import numpy as	np
+from decimal import Decimal, getcontext
+getcontext().prec=15
 
 #GLOBAL
 from general_solve import globals
 
+### explicit transform functions
+def phi_trap(x,y,h,x0,y0,xi0,eta0,map_type):
+	A,B,C = [1,2,-1] if map_type < 2 else [-1,1,1]
+
+
+	xi = (x-x0)/h
+	eta = (y-y0-A/2*(x-x0))/(B*h+C*(x-x0))
+
+	phi0 = bspline3(xi-xi0,1)
+	phi1 = bspline2(eta-eta0,1)
+	return phi0*phi1
+
+def AB0_to_eta(A,B,A0,B0):
+	if A0+B0 == 0:
+		return 0,0
+	mod = B0-A0
+	prod = A*A0+B*B0
+	if A0+B0 < 0:
+		return mod*prod,mod
+	return mod*(prod-1),mod
+
+def AB0_to_deta(A0,B0,coefs):
+	if A0+B0==0:
+		return 0,0
+	elif B0 == 0:
+		return coefs[0],coefs[1]
+	else:
+		return coefs[2],coefs[3]
+
+def bspline3_triangle_point(xi):
+	return bspline3(xi,1)+(xi-1)*bspline3(xi+1,1)+(1-xi)*bspline3(xi-1,1)
+
+def dbspline3_triangle_point(xi):
+	part0 = bspline3_dx(xi,1)
+	part1a = bspline3(xi+1,1)
+	part1b = (xi-1)*bspline3_dx(xi+1,1)
+	part2a = -bspline3(xi-1,1)
+	part2b = (1-xi)*bspline3_dx(xi-1,1)
+	return part0+part1a+part1b+part2a+part2b
+
+
+def dphi_tri(x,y,h,bary_coefs,x0,y0,map_type,x1=None,y1=None,check=False):
+
+	xp,yp,coef0,coef1,coef2,coef3,tmp = bary_coefs
+	dA_dx, dA_dy, dB_dx, dB_dy = coef0, coef1, coef2, coef3
+
+	A0 = coef0*(x0-xp) + coef1*(y0-yp)
+	B0 = coef2*(x0-xp) + coef3*(y0-yp)
+	other0 = (A0+B0) if map_type < 2 else 1-(A0+B0)
+	A = coef0*(x-xp) + coef1*(y-yp)
+	B = coef2*(x-xp) + coef3*(y-yp)
+
+	# print(A0,B0,A,B)
+	other = A+B
+	dother_dx = dA_dx+dB_dx
+	dother_dy = dA_dy+dB_dy
+	if map_type > 1:
+		other = 1-other
+		dother_dx *= -1
+		dother_dy *= -1
+
+	if map_type %2 == 0:
+		xi = other
+		xi0 = other0
+		eta,deta = AB0_to_eta(A,B,A0,B0)
+		
+		phi0 = bspline3(xi-xi0,1)
+		if A0+B0 != 0:
+			dphi0_dxi = bspline3_dx(xi-xi0,1)
+		else:
+			dphi0_dxi = dbspline3_triangle_point(xi)
+		phi1 = bspline2(eta,1)
+		dphi1_deta = bspline2_dx(eta,1)*deta
+
+		dxi_dx,dxi_dy = dother_dx,dother_dy
+		deta_dx,deta_dy = AB0_to_deta(A0,B0,bary_coefs[2:-1])
+	else:
+		eta = other
+		eta0 = other0
+		xi,dxi = AB0_to_eta(A,B,A0,B0)
+		
+		phi0 = bspline2(xi,1)
+		dphi0_dxi = bspline2_dx(xi,1)*dxi
+		phi1 = bspline3(eta-eta0,1)
+		dphi1_deta = bspline3_dx(eta-eta0,1)
+
+		deta_dx,deta_dy = dother_dx,dother_dy
+		dxi_dx,dxi_dy = AB0_to_deta(A0,B0,bary_coefs[2:-1])
+
+	dphi0_dx = dphi0_dxi*dxi_dx
+	dphi0_dy = dphi0_dxi*dxi_dy
+
+	dphi1_dx = dphi1_deta*deta_dx
+	dphi1_dy = dphi1_deta*deta_dy
+
+	dphi_dx = dphi0_dx*phi1 + dphi1_dx*phi0
+	dphi_dy = dphi0_dy*phi1 + dphi1_dy*phi0
+	dphi = np.array([dphi_dx,dphi_dy],dtype=np.float128)
+
+	# if check:
+	# 	return eta,dphi1_deta#dphi0_dxi,dphi1_deta#phi0,phi1#,,dxi_dx,dxi_dy,deta_dx,deta_dy
+
+	if x1 is None:
+		return dphi
+		# return np.array([dphi_dx,dphi_dy])
+
+	_dphi = dphi_tri(x,y,h,bary_coefs,x1,y1,map_type)
+
+	return dphi @ _dphi
+
+
+def dphi_trap(x,y,h,x0,y0,xi0,eta0,map_type,xi1=None,eta1=None):
+	A,B,C = [1,2,-1] if map_type < 2 else [-1,1,1]
+
+	if map_type %2 == 0:
+		xi = (x-x0)/h
+		eta = (y-y0-A/2*(x-x0))/(B*h+C*(x-x0))
+
+		dxi_dx = 1/h
+		deta_dx = (-A/2*(B*h+C*(x-x0))-C*x*(y-y0-A/2*(x-x0)))/(B*h+C*(x-x0))**2
+		dxi_dy = 0
+		deta_dy = 1/(B*h+C*(x-x0))
+
+		phi0 = bspline3(xi-xi0,1)
+		phi1 = bspline2(eta-eta0,1)
+
+		dphi0_dxi = bspline3_dx(xi-xi0,1)
+		dphi1_deta = bspline2_dx(eta-eta0,1)
+	else:
+		eta = (y-y0)/h
+		xi = (x-x0-A/2*(y-y0))/(B*h+C*(y-y0))
+
+		deta_dy = 1/h
+		dxi_dy = (-A/2*(B*h+C*(y-y0))-C*y*(x-x0-A/2*(y-y0)))/(B*h+C*(y-y0))**2
+		deta_dx = 0
+		dxi_dx = 1/(B*h+C*(y-y0))
+
+		phi0 = bspline2(xi-xi0,1)
+		phi1 = bspline3(eta-eta0,1)
+
+		dphi0_dxi = bspline2_dx(xi-xi0,1)
+		dphi1_deta = bspline3_dx(eta-eta0,1)
+
+	dphi0_dx = dphi0_dxi*dxi_dx
+	dphi0_dy = dphi0_dxi*dxi_dy
+
+	dphi1_dx = dphi1_deta*deta_dx
+	dphi1_dy = dphi1_deta*deta_dy
+
+	dphi_dx = dphi0_dx*phi1 + dphi1_dx*phi0
+	dphi_dy = dphi0_dy*phi1 + dphi1_dy*phi0
+	dphi = np.array([dphi_dx,dphi_dy],dtype=np.float128)
+
+	if xi1 is None:
+		return dphi
+
+	_dphi = dphi_trap(x,y,h,x0,y0,xi1,eta1,map_type)
+	return dphi @ _dphi
+
+
 ### 1d local functions
+
 
 def	phi0(x,h):
 	if -h/2	<= x <=	h/2:
@@ -82,7 +245,6 @@ def	bspline4(x,h):
 		return (-x**3+6*x**2*h-12*x*h**2+8*h**3)/6/h**3
 	else:
 		return 0
-
 
 ### 1d local function derivatives
 

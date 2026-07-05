@@ -50,6 +50,7 @@ class Integrator:
 		self.dphi_vals = {}
 		for quad_id,bounds in enumerate(self.quad_bounds_shifted):
 			self.quad_ref_eval_locs[quad_id] = {}
+			self.quad_ref_eval_locs[quad_id][-1] = self.get_quad_eval_locs(bounds,0,0)
 			self.phi_vals[quad_id] = []
 			self.dphi_vals[quad_id] = []
 
@@ -175,12 +176,13 @@ class Integrator:
 		a,b,c,d = bounds
 		xmid, ymid = (a+b)/2, (c+d)/2
 		xscale, yscale = (b-a)/2, (d-c)/2
-		locs = []
+		locs = np.zeros((self.qpn,self.qpn,self.dim))
 		for j in range(self.qpn):
 			for i in range(self.qpn):
 				xinput = xscale * self.points[j] + xmid
 				yinput = yscale * self.points[i] + ymid
-				locs.append((xinput+xshft,yinput+yshft))
+				locs[i,j,:] = [xinput+xshft,yinput+yshft]
+				# locs.append((xinput+xshft,yinput+yshft))
 		return locs
 
 	def _evaluate_func_on_line(self,func,bounds):
@@ -227,6 +229,19 @@ class Integrator:
 						vals[i,j,k] = func(xinput,yinput,zinput)
 		return vals
 
+	def _evaluate_func_on_triangle(self,func,bounds,wrap=None):
+		lens = np.array(bounds[1::2])-np.array(bounds[::2])
+		all_vals = []
+		for quad in self.quad_bounds:
+			quad_bound = []
+			for ind,diff in enumerate(lens):
+				quad_bound.append(bounds[2*ind]+quad[2*ind]*diff)
+				quad_bound.append(bounds[2*ind]+quad[2*ind+1]*diff)
+			quad_vals = self._evaluate_func_at_points(func,quad_bound,wrap=wrap)
+			all_vals.append(quad_vals)
+		return all_vals
+
+
 	def _evaluate_func_on_element(self,func,bounds,wrap=None):
 		lens = np.array(bounds[1::2])-np.array(bounds[::2])
 		all_vals = []
@@ -239,15 +254,24 @@ class Integrator:
 			all_vals.append(quad_vals)
 		return all_vals
 
-	def _compute_k_product_integral(self,i,j,quad_id):
-		vals0 = self.dphi_vals[quad_id][i]
-		vals1 = self.dphi_vals[quad_id][j]
+	def _compute_k_product_integral(self,i,j,quad_id,jac=None,jdet=1,dphi_dict=None):
+		if dphi_dict is None:
+			dphi_dict = self.dphi_vals
+		vals0 = dphi_dict[quad_id][i]
+		vals1 = dphi_dict[quad_id][j]
 		if self.dim == 2:
 			n,m,_ = vals0.shape
 			prod = np.zeros((n,m))
 			for ii in range(n):
 				for jj in range(m):
-					prod[ii,jj] = vals0[ii,jj] @ vals1[ii,jj]
+					if jac is not None:
+						ixi,ieta = vals0[ii,jj]
+						jxi,jeta = vals1[ii,jj]
+						A,C,B = jac[ii,jj]
+						tmp = A*(ixi*jxi)+C*(ieta*jeta)+B*(ixi*jeta+ieta*jxi)
+						prod[ii,jj] = tmp
+					else:
+						prod[ii,jj] = vals0[ii,jj] @ vals1[ii,jj]
 		if self.dim == 3:
 			n,m,p,_ = vals0.shape
 			prod = np.zeros((n,m,p))
@@ -255,24 +279,25 @@ class Integrator:
 				for jj in range(m):
 					for kk in range(p):
 						prod[ii,jj,kk] = vals0[ii,jj,kk] @ vals1[ii,jj,kk]
-		return self._compute_product_integral(prod,volume=1/2**self.dim)
+		return self._compute_product_integral(prod,volume=1/2**self.dim,jdet=jdet)
 
-	def _compute_product_integral(self,vals0,vals1=1,volume=1):
+	def _compute_product_integral(self,vals0,vals1=1,volume=1,jdet=1):
 		if self.dim == 2:
 			scale = volume/4
-			return (vals0*vals1) @ self.W @ self.W * scale
+			return (vals0*vals1*jdet) @ self.W @ self.W * scale
 		if self.dim == 3:
 			scale = volume/8
 			return (vals0*vals1) @ self.W @ self.W @ self.W * scale
 
-	def _compute_error_integral(self,vals0,vals1,volume=1,p=2,prev_val=0):
+	def _compute_error_integral(self,vals0,vals1,volume=1,p=2,prev_val=0,jdet=1):
+		diff = abs(vals0-vals1)
 		if p == "inf":
-			new_max = max(abs(vals0-vals1).flatten())
+			new_max = max(diff.flatten())
 			return max(prev_val,new_max)
 		if self.dim == 2:
 			scale = volume / 4
-			new_val = (abs(vals0-vals1)**p)@ self.W @ self.W * scale
+			new_val = (diff**p*jdet)@ self.W @ self.W * scale
 			return prev_val + new_val
 		if self.dim == 3:
 			scale = volume / 8
-			return ((vals0-vals1)**2)@ self.W @ self.W @ self.W * scale
+			return (diff**2)@ self.W @ self.W @ self.W * scale

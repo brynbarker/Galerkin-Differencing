@@ -8,7 +8,7 @@ from general_solve import globals
 from general_solve.debug import matvis
 
 class ConstraintOperator:
-	def __init__(self,mesh):
+	def __init__(self,mesh,zz_fills=None):
 		self.mesh = mesh
 		self.patches = mesh.patches
 		self.dof_id_shift = len(self.patches[0].dofs)
@@ -23,9 +23,10 @@ class ConstraintOperator:
 		self.Cd = []
 
 		self.null_space = None
+		self.zz_ghost_list = []
 
 		self._set_patches()
-		self._setup_interface()
+		self._setup_interface(zz_fills)
 		self._setup_boundary()
 		self._construct_matrix()
 
@@ -121,11 +122,57 @@ class ConstraintOperator:
 		return
 
 
+	def _setup_zigzag_interface(self,zz_fills):
+		zz_fill_ids = self._global_dof_id(zz_fills,0)
 
-	def _setup_interface(self):
+		zz_ghosts = self.patches[self.gpatch].zigzag_ghosts
+		zz_ghost_ids = self._global_dof_id(zz_ghosts,1)
+
+		zCr, zCc, zCd = [],[],[]
+
+		if self.mesh.dofloc == 'xside':
+			fill =  {0:zz_fill_ids[::2],
+		   			 1:zz_fill_ids[1::2]}
+			ghost = {0:zz_ghost_ids[::2],
+					 1:zz_ghost_ids[1::2]}
+		elif self.mesh.dofloc == 'yside':
+			fill_split = int(len(zz_fill_ids)/2)
+			fill = {0: zz_fill_ids[:fill_split],
+		   			1: zz_fill_ids[fill_split:]}
+			ghost_split = int(len(zz_ghost_ids)/2)
+			ghost = {0: zz_ghost_ids[:ghost_split],
+		   			1: zz_ghost_ids[ghost_split:]}
+
+		for side_id in [0,1]:
+			for ghost_index,ghost_id in enumerate(ghost[side_id]):
+				fill_index = int((ghost_index+1)/2)
+				fill_id = fill[side_id][fill_index]
+
+				self.Id[ghost_id] = 1
+				
+				# ghost_dof = self.get_dof(ghost_id)
+				# fill_dof = self.get_dof(fill_id)
+
+				# el_list = list(ghost_dof.elements.values())
+				# for el in el_list:
+				# 	el.reassign_dof(ghost_dof,fill_dof)
+
+				zCr.append(ghost_id)
+				zCc.append(fill_id)
+				zCd.append(1)
+
+		self.zz_ghost_list = zz_ghost_ids
+
+		return zCr, zCc, zCd
+
+
+	def _setup_interface(self,zz_fills=None):
+		print(zz_fills)
 
 		if self.gpatch is None:
 			return
+
+
 
 		def swap_periodic(non_ghost_global_ids):
 			to_return = []
@@ -136,13 +183,20 @@ class ConstraintOperator:
 					to_return.append(global_id)
 			return to_return
 
+		if zz_fills is not None:
+			zCr,zCc,zCd = self._setup_zigzag_interface(zz_fills)
+			zCc = swap_periodic(zCc)
+
+			self.Cr += zCr
+			self.Cc += zCc
+			self.Cd += zCd
 
 		if globals.LAG:
 			ghost_vals_arr = self.patches[self.gpatch].evaluate_interface_ghosts()
 			ghost_vals_inv = np.linalg.inv(ghost_vals_arr)
 		else:
-			lines, weights = self.mesh.get_interface_lines()
-			ghost_evals = self.patches[self.gpatch].evaluate_interface_ghosts(lines)
+			lines, weights, shifts = self.mesh.get_interface_lines()
+			ghost_evals = self.patches[self.gpatch].evaluate_interface_ghosts(lines+shifts)
 			ghost_count = ghost_evals.shape[0]
 
 
@@ -161,7 +215,10 @@ class ConstraintOperator:
 				nonghost_evals = p.evaluate_interface_points(self.interface_points)
 				evals = ghost_vals_inv @ nonghost_evals
 			else:
-				nonghost_evals = p.evaluate_interface_lines(lines)
+				if p_id == 1:
+					nonghost_evals = p.evaluate_interface_lines(lines+shifts)
+				else:
+					nonghost_evals = p.evaluate_interface_lines(lines)
 				nonghost_count = nonghost_evals.shape[0]
 
 				projection_matrix = np.zeros((ghost_count,nonghost_count))
@@ -169,7 +226,11 @@ class ConstraintOperator:
 					for j in range(nonghost_count):
 						projection_matrix[i,j] += sum(
 							ghost_evals[i]*nonghost_evals[j]*weights)
-				evals = np.linalg.solve(mass_matrix,projection_matrix)
+				# evals = np.linalg.solve(mass_matrix,projection_matrix)
+				evals = np.linalg.lstsq(mass_matrix,projection_matrix,rcond=1)[0]
+				if globals.DEBUG:
+					resid = mass_matrix@evals - projection_matrix
+					print('residual norm:',np.linalg.norm(resid))
 
 			sgn = 1. if p_id==self.nongpatch else -1.
 
@@ -261,16 +322,19 @@ class ConstraintOperator:
 	def vis_one_constraint(self,global_id,rtype=None):
 		color = 0
 		fig,ax = plt.subplots(1,1,figsize=(10,10))
+		plt.plot([0,0,1,1,0],[0,1,1,0,0],'k')
 		if rtype is not None:
 			if rtype=='stripe':
 				plt.plot([.25,.25,.75,.75],[0,1,1,0],'k')
 			elif rtype=='square':
 				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		val_list = []
-		assert global_id in self.ghost_list
+		assert self.Id[global_id] == 1# in self.ghost_list
 		pairs = self.C_full[global_id]
 		ghost_id,gpatch = self._local_dof_id(global_id)
-		assert gpatch==1
+
+		print(gpatch,global_id in self.d_periodic)
+		# assert gpatch==1
 		ghost = self.patches[gpatch].get_dof(ghost_id)
 		mycolor = 'C'+str(color % 10)
 		color += 1
@@ -314,7 +378,9 @@ class ConstraintOperator:
 		labs0, labs1 =False,False
 		fig,ax = plt.subplots(2,1,figsize=(10,20))
 		val_list = []
-		full_ghost_list = self.ghost_list
+		full_ghost_list = self.ghost_list+self.zz_ghost_list
+		for i in range(2):
+			ax[i].plot([0,0,1,1,0],[0,1,1,0,0],'k')
 		if rtype is not None:
 			for i in range(2):
 				if rtype=='stripe':
@@ -328,8 +394,8 @@ class ConstraintOperator:
 			ghost = self.patches[gpatch].get_dof(ghost_id)
 			mycolor = 'C'+str(color % 10)
 			color += 1
-			ax[0].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
-			ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
+			# ax[0].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
+			# ax[1].plot([.25,.25,.75,.75,.25],[.25,.75,.75,.25,.25],'grey')
 			myval_list = []
 			for (c,v) in pairs:
 				if len(pairs) == 1:#if v == 1:
@@ -347,7 +413,12 @@ class ConstraintOperator:
 					else:
 						ax[0].plot(ghost.x,ghost.y,'o',ms=10,c=mycolor,fillstyle='none')
 						ax[0].plot(cdof.x,cdof.y,'.',c=mycolor)
-					ax[0].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
+					# ax[0].plot([ghost.x,cdof.x],[ghost.y,cdof.y],c=mycolor)
+					maxd = max(abs(cdof.x-ghost.x),abs(cdof.y-ghost.y))
+					r = .4 if maxd > .5 else 1.4
+					ax_arrow(tail_position=(ghost.x,ghost.y),
+						head_position=(cdof.x,cdof.y),head_length=2,
+						ax=ax[0],color=mycolor,radius=r)
 
 
 				else:

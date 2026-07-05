@@ -1,5 +1,6 @@
 # globals.py
 
 def init():
-    global LAG
+    global LAG,DEBUG
     LAG = False
+    DEBUG = False
