@@ -208,16 +208,16 @@ class NonCartElement(Element):
 		# 	self.add_dof(c)
 		# self._set_corners()
 
-	def set_jacobian(self,Js_inv,Jt_det,Js_coefs):#d_j_dets,d_j_vals):
-		self.Js_inv = Js_inv
+	def set_jacobian(self,Jd_mat,Jt_det,Jd_coefs):#d_j_dets,d_j_vals):
+		self.Jd_mat = Jd_mat
 		self.Jt_det = Jt_det
-		self.Js_inv_coefs = Js_coefs
+		self.Jd_coefs = Jd_coefs
 
-	def set_jacobian_eval(self,jt_det,jd_inv):#d_j_dets,d_j_vals):
+	def set_jacobian_eval(self,jt_det,jd_full,jd_coef):#d_j_dets,d_j_vals):
 
 		self.jt_det_eval = jt_det[self.map_type]
-		self.jd_inv_eval = {i:jd_inv[i][1] for i in range(4)}
-		self.jd_invmat_eval = {i:jd_inv[i][0] for i in range(4)}
+		self.jd_coef_eval = jd_coef[self.map_type]
+		self.jd_full_eval = jd_full[self.map_type]
 
 		# J_vals,Jinv_vals = {},{}
 		# for i in range(4):
@@ -235,9 +235,9 @@ class NonCartElement(Element):
 
 	def get_deriv_jac_vals(self,quad_id=None,pts=None):
 		if quad_id is not None:
-			return self.jd_inv_eval[quad_id]
+			return self.jd_coef_eval[quad_id]
 		assert pts is not None
-		return [self.Js_inv_coefs(pt[0],pt[1]) for pt in pts]
+		return [self.Jd_coefs(pt[0],pt[1]) for pt in pts]
 
 
 	def _set_corners(self,corners):
@@ -322,6 +322,12 @@ class TrapElement(NonCartElement):
 		# self.y = ya
 
 		self.to_plot = [[xa,xb,xd,xc,xa],[ya,yb,yd,yc,ya]]
+		# import matplotlib.pyplot as plt
+		# plt.plot(xa,ya,'o')
+		# plt.plot(xb,yb,'s')
+		# plt.plot(xc,yc,'^')
+		# plt.plot(xd,yd,'*')
+		# plt.show()
 
 		if xb==xd:
 			if ya < yb:
@@ -336,15 +342,15 @@ class TrapElement(NonCartElement):
 			# self.mid = [(xa+xb)/2,(ya+yc)/2]
 
 		else:
-			if xa < xb:
+			if xa < xc:
 				self.map_type = 1
 				# self.check_loc = lambda x: (ya<=x[1]<=yb) and (x[1]-ya<=2*(x[0]-xa)<=ya-x[1]+4*self.h)
-				self.fill = lambda t: [[xa+t,xb,xd,xc-t],[ya+t]*4,[ya+t,yb-t,yb-t,ya+t]]
+				self.fill = lambda t: [[xa+t,xc,xd,xb-t],[ya+t]*4,[ya+t,yc-t,yc-t,ya+t]]
 				# self.x0, self.y0 = self.x-self.h/4, self.y-self.h/2
 			else:
 				self.map_type = 3
 				# self.check_loc = lambda x: (ya<=x[1]<=yb) and (ya-x[1]<=2*(x[0]-xa)<=x[1]-ya+2*self.h)
-				self.fill = lambda t: [[xb+t,xa,xc,xd-t],[yb-t,ya+t,ya+t,yb-t],[yb-t]*4]
+				self.fill = lambda t: [[xc+t,xa,xb,xd-t],[yc-t,ya+t,ya+t,yc-t],[yc-t]*4]
 				# self.x0, self.y0 = self.x, self.y
 			# self.mid = [(xa+xc)/2,(ya+yb)/2]
 
@@ -452,6 +458,7 @@ class TriElement(NonCartElement):
 		xa,xb,xc = [n[0] for n in self.corners]
 		ya,yb,yc = [n[1] for n in self.corners]
 
+
 		self.to_plot = [[xa,xb,xc,xa],[ya,yb,yc,ya]]
 
 		if xb==xc:
@@ -464,9 +471,9 @@ class TriElement(NonCartElement):
 			self.map_type = 1
 			self.fill = lambda t: [[xb+t,xa,xc-t],[yb-t,ya+t,yc-t],[yb-t]*3]
 		else:
-			assert ya==yc
+			assert ya==yb
 			self.map_type = 3
-			self.fill = lambda t: [[xa+t,xb,xc-t],[ya+t]*3,[ya+t,yb-t,ya+t]]
+			self.fill = lambda t: [[xa+t,xc,xb-t],[ya+t]*3,[ya+t,yc-t,ya+t]]
 
 		# ksh,lsh = tri_corner_shift[self.map_type]
 		# self.K,self.L = self.x/self.h-ksh, self.y/self.h-lsh

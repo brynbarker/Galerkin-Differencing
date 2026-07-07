@@ -3,9 +3,10 @@ from scipy import sparse
 from general_solve import shape_functions as sf
 
 class DifferentialOperator:
-	def __init__(self,mesh,integrator):
+	def __init__(self,mesh,integrator,coupler):
 		self.mesh = mesh
 		self.integrator = integrator
+		self.coupler = coupler
 		self.dim = mesh.dim
 
 		self.lookup = None # needs to be overwritten
@@ -19,16 +20,16 @@ class DifferentialOperator:
 		self.element_map = lambda e: e
 		self.test_sizes = [len(p.dofs) for p in mesh.patches]
 
-		if mesh.zigzag:# is not None:
-			self.zigzag = True
-			self.set_zigzag(mesh.zigzag_elements)
-			self.get_zigzag_lookup = mesh.get_zigzag_lookup_vals
-		else:
-			self.zigzag = False
+		# if mesh.zigzag:# is not None:
+		# 	self.zigzag = True
+		# 	# self.set_zigzag(mesh.zigzag_elements)
+		# 	self.get_zigzag_lookup = mesh.get_zigzag_lookup_vals
+		# else:
+		# 	self.zigzag = False
 		
 
-	def set_zigzag(self,extra_elements):
-		self.zigzag_elements = extra_elements
+	# def set_zigzag(self,extra_elements):
+	# 	self.zigzag_elements = extra_elements
 
 	def _get_blocks(self):
 		if len(self.blocks) == self.dim:
@@ -38,113 +39,25 @@ class DifferentialOperator:
 			print('operator quantities not specified')
 			return
 
-		lookups = [self.lookup,self.zigzag_lookup]
 		for test_size,patch in zip(self.test_sizes,self.mesh.patches):
 			size = len(patch.dofs)
 			Ar, Ac, Ad = [],[],[]
 
-
 			for e in patch.elements.values():
 				test_e = self.element_map(e)
+				e_lookup = self.lookup if e.regular else self.zigzag_lookup[e.tri][e.map_type]
 				for trial_id,dof in enumerate(e.dof_list):
 					vals = 0.
 					for q_id,quad in enumerate(e.quads):
 						if quad:
 							test_ids = test_e.get_dof_ids(q_id)
-							vals += lookups[1-e.regular][q_id][trial_id]
+							vals += e_lookup[q_id][trial_id]
 							# vals += self.lookup[id][trial_id]
 					Ar += [dof.ID]*len(test_ids)
 					Ac += test_ids
 					Ad += list(vals)#(self.lookup[id][trial_id])
 			spA = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,test_size))
 			self.blocks.append(spA)
-
-	def _add_zigzag_blocks(self):
-		if self.lookup is None:
-			print('operator quantities not specified')
-			return
-
-		shift = self.blocks[0].shape[0]
-
-		size,test_size = self.spA.shape
-		Ar, Ac, Ad = [],[],[]
-
-		for e in self.zigzag_elements:
-			if e.tri:
-				mye_func = lambda x,y,ix,iy,jx,jy: sf.dphi_tri(x,y,e.h,e.bary_coefs,ix,iy,e.map_type,jx,jy)
-			else:
-				mye_func = lambda x,y,ixi,ieta,jxi,jeta: sf.dphi_trap(x,y,e.h,e.x,e.y,ixi,ieta,e.map_type,jxi,jeta)
-			test_e = e#self.element_map(e)
-			lookup_vals = self.zigzag_lookup[e.tri][e.map_type]
-			for trial_id,dof in enumerate(e.dof_list):
-				output = dof.ref_shifts[e.global_ID]
-				ixi0,ieta0 = output[:2]
-				dof_id = dof.ID
-				if dof.h == e.h:
-					dof_id += shift
-				for test_id,test_dof in zip(e.dof_ids,e.dof_list):
-					joutput = test_dof.ref_shifts[e.global_ID]
-					jxi0,jeta0 = joutput[:2]
-					# jxi0,jeta0 = test_dof.ref_shifts[e.global_ID]
-					if e.tri:
-						myfunc = lambda x,y: mye_func(x,y,dof.x,dof.y,test_dof.x,test_dof.y)
-					else:
-						myfunc = lambda x,y: mye_func(x,y,ixi0,ieta0,jxi0,jeta0)
-					val = 0.
-					func_vals = self.integrator._evaluate_func_on_element(
-										myfunc,[0,1,0,1],wrap=e.transform)
-					
-					for id,quad in enumerate(e.quads):
-						if quad:
-							j_det = e.J_dets[id]
-							# test_ids = test_e.get_dof_ids(id)
-							val += self.integrator._compute_product_integral(
-								func_vals[id],volume=.25,jdet=j_det)
-							# vals += self.lookup[id][trial_id]
-							# for test_id,test_dof in zip(test_ids,e.dof_list):
-							# 	pass
-					# print(dof_id,test_id,val)
-					Ar.append(dof_id)
-					Ac.append(test_id)
-					Ad.append(val)
-					# Ar += [dof_id]*len(test_ids)
-					# Ac += test_ids
-
-					# Ad += list(lookup_vals[id][trial_id])
-		self.spA_noncart = sparse.coo_array((Ad,(Ar,Ac)),shape=(size,test_size))
-
-		self.spA_cartonly = self.spA.copy()
-		self.spA = self.spA_cartonly+self.spA_noncart
-
-	def _add_zigzag_force(self,ffunc):
-		# if self.F is not None:
-			# return 
-
-		# self.d_dofid_to_e_list = {0:{},1:{}}
-		size = self.F.size
-		self.F_noncart = np.zeros(size)
-		local_bounds = [0,1,0,1]
-
-		shift = self.blocks[0].shape[0]
-
-		for e in self.zigzag_elements:
-			vol = 1/2**self.dim
-			
-			fvals = self.integrator._evaluate_func_on_element(ffunc,
-										local_bounds,wrap=e.transform)
-			for test_id,dof in enumerate(e.dof_list):
-				dof_id = dof.ID
-				if dof.h == e.h:
-					dof_id += shift
-				for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
-					if quad:
-						phi_val = self.integrator.phi_vals[quad_id][test_id]
-						j_det = e.J_dets[quad_id]
-						val = self.integrator._compute_product_integral(phi_val,f_val,vol,jdet=j_det)
-						self.F_noncart[dof_id] += val
-
-		self.F_cartonly = self.F.copy()
-		self.F = self.F_cartonly+self.F_noncart
 
 	def _build_system(self,scale0=1,scale1=1):
 		if self.spA is not None:
@@ -155,9 +68,6 @@ class DifferentialOperator:
 		self.spA = sparse.bmat(np.array(
 			[[self.blocks[0]*scale0,None],
 			 [None,self.blocks[1]*scale1]]),format='csc')
-
-		if self.zigzag:
-			self._add_zigzag_blocks()
 
 	def _build_force(self,ffunc):
 		# if self.F is not None:
@@ -173,23 +83,24 @@ class DifferentialOperator:
 
 			for e in patch.elements.values():
 				vol = (e.h/2)**self.dim
-				fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
+				if e.regular:
+					fvals = self.integrator._evaluate_func_on_element(ffunc,e.bounds)
+				else:
+					fvals = self.coupler.evaluate_func_on_element(e,ffunc)
 				for test_id,dof in enumerate(e.dof_list):
-					if dof.ID in self.d_dofid_to_e_list[p_id]:
-						self.d_dofid_to_e_list[p_id][dof.ID].append(e.global_ID) 
-					else:
-						self.d_dofid_to_e_list[p_id][dof.ID] = [e.global_ID]
-					for quad_id,(quad,f_val) in enumerate(zip(e.quads,fvals)):
+					for quad_id,quad in enumerate(e.quads):
 						if quad:
-							phi_val = self.integrator.phi_vals[quad_id][test_id]
-							val = self.integrator._compute_product_integral(phi_val,f_val,vol)
+							f_val = fvals[quad_id]
+
+							if e.regular:
+								phi_val = self.integrator.phi_vals[quad_id][test_id]
+								val = self.integrator._compute_product_integral(phi_val,f_val,vol)
+							else:
+								val = self.coupler.compute_func_integral(e,test_id,f_val,quad_id)
 							F[dof.ID] += val
 			myFs.append(F)
 
 		self.F = np.hstack(myFs)
-
-		if self.zigzag:
-			self._add_zigzag_force(ffunc)
 
 	def set_solution_coef_vector(self,coef_vec):
 		self.coef_vec = coef_vec 
@@ -207,14 +118,12 @@ class DifferentialOperator:
 		self.cTkc = sys
 
 class LaplaceOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,mu=1):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,coupler,mu=1):
+		super().__init__(mesh,integrator,coupler)
 		self.mu = mu 
 
 		self.lookup = integrator.get_k_vals()
-
-		if self.zigzag:
-			self.zigzag_lookup = self.get_zigzag_lookup(k=True)
+		self.zigzag_lookup = coupler.get_lookup_vals(True)
 
 	def _build_system(self):
 		super()._build_system(scale0=self.mu,scale1=self.mu)
@@ -224,23 +133,21 @@ class LaplaceOperator(DifferentialOperator):
 		self.F *= -1
 
 class ProjectionOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,coupler):
+		super().__init__(mesh,integrator,coupler)
 		scales = [p.h**self.mesh.dim for p in self.mesh.patches]
 		self.scale0 = scales[0]
 		self.scale1 = scales[1]
 
 		self.lookup = integrator.get_m_vals()
-
-		if self.zigzag:
-			self.zigzag_lookup = self.get_zigzag_lookup(k=True)
+		self.zigzag_lookup = coupler.get_lookup_vals(False)
 
 	def _build_system(self):
 		super()._build_system(scale0=self.scale0,scale1=self.scale1)
 
 class DerivativeOperator(DifferentialOperator):
-	def __init__(self,mesh,integrator,el_map,test_sizes,comp):
-		super().__init__(mesh,integrator)
+	def __init__(self,mesh,integrator,coupler,el_map,test_sizes,comp):
+		super().__init__(mesh,integrator,coupler)
 
 		def el_map_comp(e):
 			new_e = el_map[e]
@@ -256,6 +163,7 @@ class DerivativeOperator(DifferentialOperator):
 		self.scale1 = scales[1]
 
 		self.lookup = None
+		self.zigzag_lookup = None
 
 	def set_lookup(self,lookup_d):
 		self.lookup = lookup_d

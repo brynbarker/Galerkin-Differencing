@@ -94,4 +94,29 @@ def get_quad_pts(qpn):
 		alphas.append(alpha)
 		betas.append(beta)
 
-	return wts, alphas, betas
+	wts,alphas,betas = grow(wts,alphas,betas)
+	return wts, [alphas, betas]
+
+def grow(wts,alphas,betas):
+	new_w,new_a,new_b = [],[],[]
+
+	for j in range(len(wts)):
+		a = alphas[j]
+		b = betas[j]
+		c = 1-a-b
+
+		ab = abs(a-b) < 1e-10
+		ac = abs(a-c) < 1e-10
+		bc = abs(b-c) < 1e-10
+		check = ab+ac+bc
+
+		if check == 1:
+			new_w += [wts[j],wts[j]]
+			new_a += [b,c]
+			new_b += [c,a]
+		elif check == 0:
+			new_w += [wts[j]]*5
+			new_a += [a,b,b,c,c]
+			new_b += [c,a,c,a,b]
+
+	return wts+new_w, alphas+new_a, betas+new_b
