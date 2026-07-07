@@ -113,7 +113,7 @@ class DoF:
 
 	def update(self):
 		if self.interface:
-			self.set_phi()
+			self.update_phi = True
 
 	def no_set_phi(self):
 		self.update_phi = True

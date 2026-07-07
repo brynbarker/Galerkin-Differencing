@@ -17,38 +17,38 @@ refinement_index = {'uniform':0,
 def fill_quad(xs,y0,y1,q_id,diffs):
 	if len(xs) == 2:
 		if q_id == 0:
-			new_xs = [xs[0],xs[0]+diffs[0]/2]
-			new_y0 = [y0[0],sum(y0)/2]
+			new_xs = xs#[xs[0],xs[0]+diffs[0]/2]
+			new_y0 = y0#[y0[0],sum(y0)/2]
 			new_y1 = [min(y0)+diffs[1]/2]*2
-		if q_id == 1:
-			new_xs = [xs[0]+diffs[0]/2,xs[1]]
-			new_y0 = [sum(y0)/2,y0[1]]
-			new_y1 = [min(y0)+diffs[1]/2]*2
+		# if q_id == 1:
+		# 	new_xs = [xs[0]+diffs[0]/2,xs[1]]
+		# 	new_y0 = [sum(y0)/2,y0[1]]
+		# 	new_y1 = [min(y0)+diffs[1]/2]*2
 		if q_id == 2:
-			new_xs = [xs[0],xs[0]+diffs[0]/2]
+			new_xs = xs#[xs[0],xs[0]+diffs[0]/2]
 			new_y0 = [min(y0)+diffs[1]/2]*2
-			new_y1 = [y1[0],sum(y1)/2]
-		if q_id == 3:
-			new_xs = [xs[0]+diffs[0]/2,xs[1]]
-			new_y0 = [min(y0)+diffs[1]/2]*2
-			new_y1 = [sum(y1)/2,y1[1]]
+			new_y1 = y1#[y1[0],sum(y1)/2]
+		# if q_id == 3:
+		# 	new_xs = [xs[0]+diffs[0]/2,xs[1]]
+		# 	new_y0 = [min(y0)+diffs[1]/2]*2
+		# 	new_y1 = [sum(y1)/2,y1[1]]
 	else:
-		if q_id == 0:
-			new_xs = [xs[0],(xs[0]+xs[-1])/2]
-			new_y0 = [y0[0],y0[1]]
-			new_y1 = [(y0[0]+y1[0])/2,(y0[1]+y1[1])/2]
+		# if q_id == 0:
+		# 	new_xs = [xs[0],(xs[0]+xs[-1])/2]
+		# 	new_y0 = [y0[0],y0[1]]
+		# 	new_y1 = [(y0[0]+y1[0])/2,(y0[1]+y1[1])/2]
 		if q_id == 1:
-			new_xs = [(xs[0]+xs[-1])/2,xs[-1]]
-			new_y0 = [y0[-2],y0[-1]]
-			new_y1 = [(y0[-2]+y1[-2])/2,(y0[-1]+y1[-1])/2]
-		if q_id == 2:
-			new_xs = [xs[0],(xs[0]+xs[-1])/2]
-			new_y0 = [(y0[0]+y1[0])/2,(y0[1]+y1[1])/2]
-			new_y1 = [y1[0],y1[1]]
+			new_xs = xs[:2]+[(xs[0]+xs[-1])/2]
+			new_y0 = y0[:-1]#[y0[-2],y0[-1]]
+			new_y1 = y1[:-1]#[(y0[-2]+y1[-2])/2,(y0[-1]+y1[-1])/2]
+		# if q_id == 2:
+		# 	new_xs = [xs[0],(xs[0]+xs[-1])/2]
+		# 	new_y0 = [(y0[0]+y1[0])/2,(y0[1]+y1[1])/2]
+		# 	new_y1 = [y1[0],y1[1]]
 		if q_id == 3:
-			new_xs = [(xs[0]+xs[-1])/2,xs[-1]]
-			new_y0 = [(y0[-2]+y1[-2])/2,(y0[-1]+y1[-1])/2]
-			new_y1 = [y1[-2],y1[-1]]
+			new_xs = [(xs[0]+xs[-1])/2]+xs[-2:]
+			new_y0 = y0[1:]#[(y0[-2]+y1[-2])/2,(y0[-1]+y1[-1])/2]
+			new_y1 = y1[1:]#[y1[-2],y1[-1]]
 	return new_xs,new_y0,new_y1
 
 
@@ -85,14 +85,10 @@ class Mesh:
 
 		self.dof_id_shift = len(coarse_patch.dofs)
 
-	def add_zigzag_elements(self,traps,tris,lookup_func):
+	def add_zigzag_elements(self,traps,tris):
 		self.trapezoid_elements = traps
 		self.triangle_elements = tris
 		self.zigzag_elements = traps+tris
-		self.get_zigzag_lookup_vals = lookup_func
-
-		self.all_elements += self.zigzag_elements
-
 
 	def set_quadrature(self,integrator):
 		self.pts = np.array(integrator.points)
@@ -290,7 +286,14 @@ class Mesh:
 								y0+eps,y1-eps,alpha=.4)
 						else:
 							xs,y0,y1 = el.fill(eps)
-							nxs,ny0,ny1 = fill_quad(xs,y0,y1,j,lens)
+							# print(el.tri,el.map_type)
+							# print(xs,y0,y1)
+							if el.tri:
+								nxs,ny0,ny1 = xs,y0,y1
+							else:
+								nxs,ny0,ny1 = fill_quad(xs,y0,y1,j,lens)
+							# print( nxs,ny0,ny1)
+							# print()
 							ax.fill_between(nxs,ny0,ny1,alpha=.4)
 
 

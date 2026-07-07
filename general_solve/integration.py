@@ -254,24 +254,15 @@ class Integrator:
 			all_vals.append(quad_vals)
 		return all_vals
 
-	def _compute_k_product_integral(self,i,j,quad_id,jac=None,jdet=1,dphi_dict=None):
-		if dphi_dict is None:
-			dphi_dict = self.dphi_vals
-		vals0 = dphi_dict[quad_id][i]
-		vals1 = dphi_dict[quad_id][j]
+	def _compute_k_product_integral(self,i,j,quad_id):
+		vals0 = self.dphi_vals[quad_id][i]
+		vals1 = self.dphi_vals[quad_id][j]
 		if self.dim == 2:
 			n,m,_ = vals0.shape
 			prod = np.zeros((n,m))
 			for ii in range(n):
 				for jj in range(m):
-					if jac is not None:
-						ixi,ieta = vals0[ii,jj]
-						jxi,jeta = vals1[ii,jj]
-						A,C,B = jac[ii,jj]
-						tmp = A*(ixi*jxi)+C*(ieta*jeta)+B*(ixi*jeta+ieta*jxi)
-						prod[ii,jj] = tmp
-					else:
-						prod[ii,jj] = vals0[ii,jj] @ vals1[ii,jj]
+					prod[ii,jj] = vals0[ii,jj] @ vals1[ii,jj]
 		if self.dim == 3:
 			n,m,p,_ = vals0.shape
 			prod = np.zeros((n,m,p))
@@ -279,12 +270,12 @@ class Integrator:
 				for jj in range(m):
 					for kk in range(p):
 						prod[ii,jj,kk] = vals0[ii,jj,kk] @ vals1[ii,jj,kk]
-		return self._compute_product_integral(prod,volume=1/2**self.dim,jdet=jdet)
+		return self._compute_product_integral(prod,volume=1/2**self.dim)
 
-	def _compute_product_integral(self,vals0,vals1=1,volume=1,jdet=1):
+	def _compute_product_integral(self,vals0,vals1=1,volume=1):
 		if self.dim == 2:
 			scale = volume/4
-			return (vals0*vals1*jdet) @ self.W @ self.W * scale
+			return (vals0*vals1) @ self.W @ self.W * scale
 		if self.dim == 3:
 			scale = volume/8
 			return (vals0*vals1) @ self.W @ self.W @ self.W * scale
