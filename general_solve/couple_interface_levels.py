@@ -11,18 +11,21 @@ from general_solve.barycentric_quadrature import get_quad_pts as bary_quad
 from general_solve import globals
 
 trap_quad_id_to_bnds = {
-	0: [0,1,0,.5], 1: [0,.5,0,1], 2: [0,1,.5,1], 3: [.5,1,0,1]
+	0: [0,1,0,.5], 1: [0,.5,0,1], 2: [0,1,.5,1], 3: [.5,1,0,1], -1:[0,1,0,1]
 }
+
+map_to_quad_ids = {0: [0,2],1: [1,3],2:[0,2],3:[1,3]}
 
 class Empty:
 	def __init__(self):
 		self.get_lookup_vals = lambda *args: None
 		self.phi_vals = None
 
-def get_quad_eval_locs(qpn,trap_quad_ids):
+def get_quad_eval_locs(qpn):
 	[pts,w] = np.polynomial.legendre.leggauss(qpn)
-	wts,d_pts = np.array(w),{}
-	for trap_quad_id in trap_quad_ids:
+	trap_quad_ids=[0,1,2,3]
+	wts,d_pts,full_pts = np.array(w),{},None
+	for trap_quad_id in trap_quad_ids+[-1]:
 		a,b,c,d = trap_quad_id_to_bnds[trap_quad_id]
 		xmid, ymid = (a+b)/2, (c+d)/2
 		xscale, yscale = (b-a)/2, (d-c)/2
@@ -32,9 +35,11 @@ def get_quad_eval_locs(qpn,trap_quad_ids):
 				xinput = xscale * pts[j] + xmid
 				yinput = yscale * pts[i] + ymid
 				locs[i,j,:] = [xinput,yinput]
-		d_pts[trap_quad_id] = locs
-			# locs.append((xinput+xshft,yinput+yshft))
-	return wts,d_pts
+		if trap_quad_id == -1:
+			full_pts = locs
+		else:
+			d_pts[trap_quad_id] = locs
+	return wts,d_pts,full_pts
 
 
 def get_tri_vals_at_points(func,qpn,pts,map=None,shp=[]):
@@ -52,6 +57,29 @@ def get_tri_vals_at_points(func,qpn,pts,map=None,shp=[]):
 
 	return {0:vals}
 
+# def get_trap_vals_at_points(func,qpn,d_pts,shp=[],map=None,no_quad=False):
+# 	if map is None:
+# 		map = lambda a,b:[a,b]
+# 	if no_quad:
+# 		_,d_pts = get_quad_eval_locs(qpn,[0],True)
+
+# 	val_shape = [qpn,qpn]+shp
+# 	vals = {}
+	
+# 	if len(shp) == 1 and shp[0] == 3:
+# 		shp
+# 	for quad_id in d_pts:
+# 		q_vals = np.zeros(val_shape)
+# 		for j in range(qpn):
+# 			for i in range(qpn):
+# 				xinput,yinput = d_pts[quad_id][i,j]
+# 				xi,eta = map(xinput,yinput)
+# 				tmp = func(xi,eta)
+# 				q_vals[i,j] = func(xi,eta)
+# 		vals[quad_id] = q_vals
+
+# 	return vals
+
 def get_trap_vals_at_points(func,qpn,d_pts,shp=[],map=None):
 	if map is None:
 		map = lambda a,b:[a,b]
@@ -67,7 +95,6 @@ def get_trap_vals_at_points(func,qpn,d_pts,shp=[],map=None):
 			for i in range(qpn):
 				xinput,yinput = d_pts[quad_id][i,j]
 				xi,eta = map(xinput,yinput)
-				tmp = func(xi,eta)
 				q_vals[i,j] = func(xi,eta)
 		vals[quad_id] = q_vals
 
@@ -150,8 +177,10 @@ class InterfaceMapping():
 		A = lambda a,b: (2+b)/(2+a+b)**2
 		B = lambda a,b: -a/(2+a+b)**2-2/(2+b)**2
 
-		Jt_tri_det = {0:lambda *args: -H**2/4,2:lambda *args: H**2/4,
-					  1:lambda *args: H**2/4,3:lambda *args: -H**2/4}
+		Jt_tri_det = {0:lambda *args: H**2/4,2:lambda *args: H**2/4,
+					  1:lambda *args: H**2/4,3:lambda *args: H**2/4}
+		# Jt_tri_det = {0:lambda *args: -H**2/4,2:lambda *args: H**2/4,
+					#   1:lambda *args: H**2/4,3:lambda *args: -H**2/4}
 		Jd_tri = {0:lambda a,b: 1/H*np.array([[1,A(a,b)+B(a,b)],[0,2*(A(a,b)-B(a,b))]]),
 				  2:lambda a,b: 1/H*np.array([[1,-(A(a,b)+B(a,b))],[0,2*(A(a,b)-B(a,b))]]),
 				  1:lambda a,b: 1/H*np.array([[2*(A(a,b)-B(a,b)),0],[A(a,b)+B(a,b),1]]),
@@ -237,13 +266,13 @@ class InterfaceMapping():
 			low_high = [0,1-H]
 		tri_id_map = {ID:[int(ID/chop),ID%chop] for ID in range(self.tri_prod)}
 
-		self.trap_wts,d_trap_pts = get_quad_eval_locs(self.qpn,[0,1,2,3])
+		self.trap_wts,d_trap_pts,full_trap_pts = get_quad_eval_locs(self.qpn)
 		tri_wts,self.tri_pts = bary_quad(min(self.qpn-1,6))
 		self.tri_wts = np.array(tri_wts)
 		# self.tri_qpn = len(tri_wtsts)
 
 		my_ops = [j for j in range(4) if both[j]]
-		self.my_pts = [d_trap_pts,{0:self.tri_pts}]
+		self.my_pts = [d_trap_pts,{0:self.tri_pts},{-1:full_trap_pts}]
 
 		get_pars = [(self.integrator.prod,self.integrator.id_map,phi_input_trap),
 			  		(self.tri_prod,tri_id_map,phi_input_tri)]
@@ -311,11 +340,16 @@ class InterfaceMapping():
 		lab = 'k' if k else 'm'
 		shp = 'tri' if tri else 'trap'
 		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
-		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled')
+		if not os.path.exists(fpath):
+			fpath = os.path.join(os.path.dirname(os.getcwd()),'general_solve','pickled')
+		if not os.path.exists(fpath):
+			fpath = os.path.join(os.path.dirname(os.getcwd()),'Galerkin-Differencing','general_solve','pickled')
 		if globals.LAG:
-			fname = fpath+'{}_{}_vals_p{}_qpn{}.pickle'.format(shp,lab,ord_string,self.qpn)
+			fname = '{}_{}_vals_p{}_qpn{}.pickle'.format(shp,lab,ord_string,self.qpn)
 		else:
-			fname = fpath+'{}_{}_spline_vals_p{}_qpn{}.pickle'.format(shp,lab,ord_string,self.qpn)
+			fname = '{}_{}_spline_vals_p{}_qpn{}.pickle'.format(shp,lab,ord_string,self.qpn)
+		fname = os.path.join(fpath,fname)
 
 		try:
 			with open(fname,'rb') as handle:
@@ -332,6 +366,7 @@ class InterfaceMapping():
 						for j in range(i,size):
 							val = self._get_product_integral(
 								k,tri,i,j,map_type,quad_id)
+							if not isinstance(val,float): val = val[0]
 							local[i,j] = val
 							local[j,i] = val
 
@@ -434,11 +469,38 @@ class InterfaceMapping():
 		return self._compute_product_integral(tri,prod)
 
  
-	def evaluate_func_on_element(self,e,func):
+	def evaluate_func_on_element(self,e,func,ret_array=False,ref=False):
+		if e.tri:
+			el_pts = self.my_pts[e.tri]
+		else:
+			el_pts = {j:self.my_pts[0][j] for j in map_to_quad_ids[e.map_type]}
+		el_map = None if ref else e.transform
 		f_vals = get_vals_at_points(
-			e.tri,func,self.qpn,self.my_pts[e.tri],
+			e.tri,func,self.qpn,el_pts,
+			map=el_map)
+
+		if ret_array:
+			vals = 0
+			for key in f_vals:
+				vals += f_vals[key]
+			return vals
+		return f_vals
+
+	def evaluate_func_on_ref_element(self,e,func,ret_array=False):
+		if e.tri:
+			el_pts = self.my_pts[e.tri]
+		else:
+			el_pts = {j:self.my_pts[0][j] for j in map_to_quad_ids[e.map_type]}
+		print(el_pts.keys())
+		f_vals = get_vals_at_points(
+			e.tri,func,self.qpn,el_pts,
 			map=e.transform)
 
+		if ret_array:
+			vals = 0
+			for key in f_vals:
+				vals += f_vals[key]
+			return vals
 		return f_vals
 
 	def compute_func_integral(self,el,phi_id,f_val,q_id):
@@ -460,6 +522,6 @@ class InterfaceMapping():
 
 	def _compute_product_integral(self,tri,prod):
 		if tri:
-			return prod @ self.tri_wts
+			return prod @ self.tri_wts / 2
 		else:
 			return prod @ self.trap_wts @ self.trap_wts / 8

@@ -325,7 +325,7 @@ class ConstraintOperator:
 		plt.plot([0,0,1,1,0],[0,1,1,0,0],'k')
 		if rtype is not None:
 			if rtype=='stripe':
-				plt.plot([.25,.25,.75,.75],[0,1,1,0],'k')
+				plt.plot([0,1,1,0],[.25,.25,.75,.75],'k')
 			elif rtype=='square':
 				plt.plot([.25,.75,.75,.25,.25],[.25,.25,.75,.75,.25],'k')
 		val_list = []

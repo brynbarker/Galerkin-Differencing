@@ -2,16 +2,16 @@ def get_quad_pts(qpn):
 	wts, alphas, betas = [],[],[]
 	if qpn == 1:
 		w = 1.000000000000000 
-		alpha = 0.333333333333333 
-		beta = 0.333333333333333 
+		alpha = 0.333333333333333333333 
+		beta = 0.33333333333333333333333 
 		wts.append(w)
 		alphas.append(alpha)
 		betas.append(beta)
 	if qpn == 2:
 		# p= 2 
-		w = 0.333333333333333 
-		alpha = 0.666666666666667 
-		beta = 0.166666666666667
+		w = 0.333333333333333333333333 
+		alpha = 0.6666666666666666666666667 
+		beta = 0.1666666666666666666666667
 		wts.append(w)
 		alphas.append(alpha)
 		betas.append(beta)
@@ -19,13 +19,13 @@ def get_quad_pts(qpn):
 	if qpn == 3:
 		# p= 3
 		w = -0.562500000000000 
-		alpha =  0.333333333333333 
-		beta =  0,333333333333333
+		alpha =  0.333333333333333333333 
+		beta =  0.33333333333333333333333
 		wts.append(w)
 		alphas.append(alpha)
 		betas.append(beta)
 
-		w = 0.520833333333333  
+		w = 0.520833333333333333333333333  
 		alpha = 0.600000000000000  
 		beta = 0.200000000000000 
 		wts.append(w)
@@ -51,8 +51,8 @@ def get_quad_pts(qpn):
 	if qpn == 5:
 		# p= 5 
 		w = 0.225000000000000 
-		alpha = 0.333333333333333 
-		beta = 0.333333333333333 
+		alpha = 0.333333333333333333333333333 
+		beta = 0.33333333333333333333333333 
 		wts.append(w)
 		alphas.append(alpha)
 		betas.append(beta)
@@ -103,6 +103,7 @@ def grow(wts,alphas,betas):
 	for j in range(len(wts)):
 		a = alphas[j]
 		b = betas[j]
+		print(a,b)
 		c = 1-a-b
 
 		ab = abs(a-b) < 1e-10
@@ -118,5 +119,5 @@ def grow(wts,alphas,betas):
 			new_w += [wts[j]]*5
 			new_a += [a,b,b,c,c]
 			new_b += [c,a,c,a,b]
-
+		print(new_a,new_b)
 	return wts+new_w, alphas+new_a, betas+new_b

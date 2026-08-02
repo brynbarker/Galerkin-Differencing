@@ -76,11 +76,18 @@ class Integrator:
 	def _get_vals(self,k=True):
 		lab = 'k' if k else 'm'
 		ord_string = '{}{}'.format(self.ords[0],self.ords[1])
-		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled/')
+		fpath = os.path.join(os.path.dirname(os.getcwd()),'pickled')
+		if not os.path.exists(fpath):
+			fpath = os.path.join(os.path.dirname(os.getcwd()),'general_solve','pickled')
+		if not os.path.exists(fpath):
+			fpath = os.path.join(os.path.dirname(os.getcwd()),'Galerkin-Differencing','general_solve','pickled')
+		print(fpath)
+
 		if globals.LAG:
-			fname = fpath+'{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+			fname = '{}_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
 		else:
-			fname = fpath+'{}_spline_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+			fname = '{}_spline_vals_p{}_qpn{}.pickle'.format(lab,ord_string,self.qpn)
+		fname = os.path.join(fpath,fname)
 
 		try:
 			with open(fname,'rb') as handle:

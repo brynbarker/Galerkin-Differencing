@@ -139,6 +139,8 @@ class RefinementPattern:
 		if self.zigzag:
 			Lshft = .25+self.h/2 if self.rtype%2==0 else .25-self.h/2
 			Rshft = .75-self.h/2 if self.rtype%2==0 else .75+self.h/2
+			zoffIN = H if self.rtype%2==0 else 0
+			zoffOUT = 0 if self.rtype%2==0 else H 
 		edges =	{}
 		for	i in range(self.dim):
 			zsame = self.zigzag and ((i==0 and self.xside) or (i==1 and self.yside))
@@ -149,12 +151,15 @@ class RefinementPattern:
 			Lstart,Rstart = [.25,.75] if not zsame else [Lshft,Rshft]
 
 			if self.ords[i]==0: offset = 0
-			if zsame: offset = H
+			offsetIN,offsetOUT = offset,offset
+			if zsame: 
+				offsetIN,offsetOUT = zoffIN,zoffOUT
+			print(zsame)
 
-			edge1a = Lstart - offset - H*self.shifts_L[i]
-			edge1b = Lstart + offset + H*self.shifts_R[i]
-			edge2a = Rstart - offset - H*self.shifts_L[i]
-			edge2b = Rstart + offset + H*self.shifts_R[i]
+			edge1a = Lstart - offsetOUT - H*self.shifts_L[i]
+			edge1b = Lstart + offsetIN + H*self.shifts_R[i]
+			edge2a = Rstart - offsetIN - H*self.shifts_L[i]
+			edge2b = Rstart + offsetOUT + H*self.shifts_R[i]
 
 			edges[i] = [edge1a,edge1b,edge2a,edge2b]
 
@@ -460,6 +465,8 @@ class StripeRefinement(RefinementPattern):
 		edges, i_edges = edge_dicts
 		center,loose_center, domain, line_support, far_out = funcs[:5]
 		periodic, dirichlet, block, slice = funcs[-4:]
+		print(edges)
+		print(i_edges)
 
 
 		z_interface = lambda *args: False
@@ -524,7 +531,7 @@ class StripeRefinement(RefinementPattern):
 		if self.ords[rdim] == 0:
 			ghost = lambda loc: False#interface(loc)
 		# ghost = lambda loc: False
-
+		 
 		checks = [check, echeck, periodic, z_interface,
 				  e_extra, quad, interface, ghost]
 		return doms, checks

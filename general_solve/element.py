@@ -15,6 +15,10 @@ class Element:
 		self.tri=False
 		self.zigzag = False
 		self.global_ID = ID
+		if self.regular:
+			self.vol = self.h**self.dim
+		else:
+			self.vol = 1
 
 		if dim == 2:
 			self.i,self.j = inds
@@ -149,11 +153,24 @@ ab = {0:[1,2,0,1,-2,0],
 	  2:[-1,2,1,-1,-2,1],
 	  1:[2,1,0,-2,1,0],
 	  3:[2,-1,1,-2,-1,1]}
+ab = {0:[1,-2,0,1,2,0],
+	  2:[-1,2,1,-1,-2,1],
+	  1:[2,1,0,-2,1,0],
+	  3:[-2,-1,1,2,-1,1]}
+	  
+shift_coefs = {0: [1,2,0],
+			   2: [-1,-2,1],
+			   1: [-2,1,0],
+			   3: [-2,-1,1]}
 
 cstar = {0:(0,0),
 		 2:(1,0),
 		 1:(0,0),
 		 3:(0,1)}
+cstar = {0:(1,-1,0,0),
+		 2:(-1,1,1,0),
+		 1:(1,1,0,0),
+		 3:(-1,-1,0,1)}
 
 def get_trap_corners(K,L,dofloc,H):
 	if dofloc == 'xside':
@@ -490,23 +507,27 @@ class TriElement(NonCartElement):
 		return min(alpha,beta,1-alpha-beta)>=0
 
 	def transform(self,alpha,beta):
-		xc,yc = cstar[self.map_type]
+		s0,s1,xc,yc = cstar[self.map_type]
 		xind,yind = self.map_type%2,self.map_type%2==0
-		sgn = 1 if self.map_type<2 else -1
+		# sgn = 1 if self.map_type<2 else -1
 
-		v0 = sgn*self.h*(alpha+beta)/2
-		v1 = self.h*(alpha-beta)/4
+		# v0 = sgn*self.h*(alpha+beta)/2
+		# v1 = self.h*(alpha-beta)/4
+		v0 = s0*(alpha+beta)/2
+		v1 = s1*(alpha-beta)/4
 		vars = [v0,v1]
 
-		x = vars[xind] + self.h*(self.K+xc)
-		y = vars[yind] + self.h*(self.L+yc)
+		x = self.h * (vars[xind] + self.K+xc)
+		y = self.h * (vars[yind] + self.L+yc)
 		return x,y
 
 	def ginv_transform(self, x, y):
 		xb,yb,cb = ab[self.map_type][-3:]
-		beta = xb*(x/self.h-self.K)+yb*(y/self.h-self.L)+cb
+		xs,ys,cs = shift_coefs[self.map_type]
+		shft = xs*(x/self.h-self.K)+ys*(y/self.h-self.L)+cs
 		stars = list(super().ginv_transform(x, y))
-		shift = beta/(2+beta)
+		# shift = beta/(2+beta)
+		shift = shft/(2+shft)
 
 		stars[1-self.map_type%2] -= shift
 		xi_star,eta_star = stars
@@ -515,7 +536,10 @@ class TriElement(NonCartElement):
 	def phi_input_local(self,alpha,beta):
 		tmp = (alpha+beta)/2
 		main = tmp if self.map_type<2 else 1-tmp
-		other = alpha/(2+alpha+beta)-beta/(2+beta)
+		if self.map_type in [1,2]:
+			other = alpha/(2+alpha+beta)-beta/(2+beta)
+		else:
+			other = beta/(2+alpha+beta)-alpha/(2+alpha)
 
 		xi_ind,eta_ind = self.map_type%2,self.map_type%2==0
 		vars = [main,other]

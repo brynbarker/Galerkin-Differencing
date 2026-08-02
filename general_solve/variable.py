@@ -9,7 +9,7 @@ from general_solve.differential_operators import DifferentialOperator,LaplaceOpe
 from general_solve.constraints import ConstraintOperator
 from general_solve.couple_interface_levels import InterfaceMapping,Empty
 from general_solve.shape_functions import phi_2d_ref
-import krylov
+# import krylov
 
 from general_solve import globals
 
@@ -269,12 +269,11 @@ class SingleComponentVariable:
 		self.rhs = rhs
 
 		ns = scla.null_space(self.lhs).T
+		print(ns.shape)
 		for vec in ns:
 			before = vec@rhs
 			rhs -= before*vec
 			print(before,vec@rhs)
-
-		return
 
 		try:
 			# assert False

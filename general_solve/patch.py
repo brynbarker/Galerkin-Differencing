@@ -125,6 +125,14 @@ class Patch:
 			# if low:
 			#	self.corners.append(lookup_id)
 		# print(self.sum_arr)
+		if globals.DEBUG:
+			plt.plot([0,0,1,1,0],[0,1,1,0,0],'k')
+			plt.plot([0,1],[.25,.25],'k')
+			plt.plot([0,1],[.75,.75],'k')
+			for d_id in self.dofs:
+				dof = self.dofs[d_id]
+				plt.plot(dof.x,dof.y,'o')
+			plt.show()
 
 		el_count = len(e_info[0])
 		trap_els,tri_els = [None],[]
@@ -163,8 +171,10 @@ class Patch:
 			check_id = self._get_lookup_id_from_loc(loc)
 			assert(check_id==el_lookup_id)
 			self.elements[el_lookup_id]	= newel
+			self.alt_el[newel.ID] = el_lookup_id
 			if extra and quads:
 				self.elements[-el_lookup_id] = triel
+				self.alt_el[triel.ID] = -el_lookup_id
 
 		for	e in self.elements.values():
 			if eshft > 0:
